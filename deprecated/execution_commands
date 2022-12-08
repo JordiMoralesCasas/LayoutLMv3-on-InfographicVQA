@@ -1,0 +1,114 @@
+pip install -r requirements.txt
+
+    datasets==2.3.2
+    evaluate==0.1.2
+    huggingface-hub==0.8.1
+    response==0.5.0
+    tokenizers==0.10.1
+    transformers==4.12.5
+    seqeval==1.2.2
+    deepspeed==0.5.7
+    tensorboard==2.7.0
+    seqeval==1.2.2
+    sentencepiece
+    timm==0.4.12
+    Pillow
+    einops
+    textdistance
+    shapely
+
+conda install pytorch==1.10.1 torchvision==0.11.2 torchaudio==0.10.1 cudatoolkit=11.3 -c pytorch -c conda-forge
+
+python -m pip install detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu113/torch1.10/index.html
+
+pip install -e .
+
+# Extra packages
+pip install opencv-python
+
+# Required for me
+pip uninstall setuptools
+
+python3 -m pip install setuptools==59.5.0 
+
+pip3 install --upgrade protobuf==3.20.0
+
+# If Import Error: Cannot import LayoutLMv3FeatureExtractor from transformers
+pip install --upgrade huggingface
+pip install --upgrade transformers
+
+pip install setuptools==59.5.0
+
+### Form Understanding on FUNSD
+# Training/finetunning (10 min execution)
+torchrun \
+  --nproc_per_node=1 --master_port 4398 examples/run_funsd_cord.py \
+  --dataset_name funsd \
+  --do_train --do_eval \
+  --model_name_or_path microsoft/layoutlmv3-base \
+  --output_dir /home/jmorales/tfg/source/outputs/training_layoutlmv3-base-finetuned-funsd \
+  --segment_level_layout 1 --visual_embed 1 --input_size 224 \
+  --max_steps 1000 --save_steps -1 --evaluation_strategy steps --eval_steps 100 \
+  --learning_rate 1e-5 \
+  --per_device_train_batch_size 2 \
+  --gradient_accumulation_steps 1 \
+  --per_device_eval_batch_size 8 \
+  --dataloader_num_workers 8
+
+# Testing the trained model from above 
+torchrun \
+  --nproc_per_node=1 --master_port 4398 examples/run_funsd_cord.py \
+  --dataset_name funsd \
+  --do_eval \
+  --model_name_or_path /home/jmorales/tfg/code/outputs/training_layoutlmv3-base-finetuned-funsd \
+  --output_dir /home/jmorales/tfg/source/outputs/test_selftrained_layoutlmv3-base-funsd \
+  --segment_level_layout 1 \
+  --visual_embed 1 \
+  --input_size 224 \
+  --dataloader_num_workers 8 \
+  --per_device_eval_batch_size 8
+
+# Testing the finetuned example model
+torchrun \
+  --nproc_per_node=1 --master_port 4398 examples/run_funsd_cord.py \
+  --dataset_name funsd \
+  --do_eval \
+  --model_name_or_path HYPJUDY/layoutlmv3-base-finetuned-funsd \
+  --output_dir /home/jmorales/tfg/source/outputs/test_layoutlmv3-base-finetuned-funsd \
+  --segment_level_layout 1 \
+  --visual_embed 1 \
+  --input_size 224 \
+  --dataloader_num_workers 8 \
+  --per_device_eval_batch_size 8
+
+
+# **Testing the model on cord
+torchrun \
+  --nproc_per_node=1 --master_port 4398 examples/run_funsd_cord.py \
+  --dataset_name funsd \
+  --do_eval \
+  --model_name_or_path HYPJUDY/layoutlmv3-base-finetuned-funsd \
+  --output_dir /home/jmorales/tfg/source/outputs/test_layoutlmv3-base-finetuned-funsd \
+  --segment_level_layout 1 \
+  --visual_embed 1 \
+  --input_size 224 \
+  --dataloader_num_workers 8 \
+  --per_device_eval_batch_size 8
+
+
+# Visual question answering on DocVQA
+
+# https://huggingface.co/docs/transformers/tasks/question_answering
+
+# Test 
+torchrun \
+  --nproc_per_node=1 --master_port 4398 examples/question_answering/run_docvqa.py \
+  --dataset_name docvqa \
+  --do_eval \
+  --model_name_or_path microsoft/layoutlmv3-base \
+  --output_dir /home/jmorales/tfg/source/outputs/test_layoutlmv3-base-finetuned-docvqa \
+  --segment_level_layout 1 \
+  --visual_embed 1 \
+  --input_size 224 \
+  --dataloader_num_workers 8 \
+  --per_device_eval_batch_size 2
