@@ -22,14 +22,12 @@ Cache dataset files and images all at once (cache dataset after tokenization/dat
 
 Randomly show some images along with questions/gt answer/predicted answer
 
--- USEFULL:
-ANLS metric https://rrc.cvc.uab.es/?ch=11&com=tasks
-
 ------- PARA PROXIMA REUNION -------
 
 ** Como utiliza el modelo los tokens del contexto (texto del documento/infographic) y la pregunta
 
 ** Mirar que utiliza la loss
+    Media de la CrossEntropyLoss entre los start/end logits y las posiciones reales.
 
 ** Entrenar ultimas capas solo? 
     Segun el paper original, para docVQA hace un finetunning a partir del modelo base:
@@ -37,9 +35,7 @@ ANLS metric https://rrc.cvc.uab.es/?ch=11&com=tasks
         LR 3e-5
         Warmup ratio 0.48 - https://github.com/huggingface/transformers/issues/6673
 
-** Ver porcentage de extractive (concretamente de respuesta explicita en el texto)
-
-** Aproximar resultados de DocVQA a los dados por el paper original
+** Aproximar resultados de DocVQA a los dados por el paper original -> 0.715184467578495
     Con OCR por defecto:
         - Train set: Extraer correctamente 36759 respuestas (Fallan 2704) -> 0.9646 ANLS
         - Val set: Extraer correctamente 4950 respuestas (Fallan 399) -> 0.9611 ANLS
@@ -47,10 +43,60 @@ ANLS metric https://rrc.cvc.uab.es/?ch=11&com=tasks
         - Train set: Extraer correctamente 37888 respuestas (Fallan 1575) -> 0.9819 ANLS
         - Val set: Extraer correctamente 5090 respuestas (Fallan 259) -> 0.9742 ANLS
 
-** Dar una BASELINE para infographicVQA
-https://learn.microsoft.com/en-us/azure/cognitive-services/computer-vision/quickstarts-sdk/client-library?tabs=visual-studio&pivots=programming-language-python
+** Ver porcentage de extractive (concretamente de respuesta explicita en el texto)
+    v1 method:
+        Con OCR por defecto:
+            - Train set: Extraer correctamente 14202 respuestas (Fallan 9744) -> 0.9556 ANLS
+                De 23946 se extraen 14202 -> 59.31%
+            - Val set: Extraer correctamente 1661 respuestas (Fallan 1140) -> 0.9622 ANLS
+                De 2801 se extraen 1661 -> 59.30%
 
-** Mirar y apuntar las dimensiones del docvqa que tengo en cache
+        Con OCR de la API de Miscrosoft:
+            - Train set: Extraer correctamente 16275 respuestas (Fallan 7671) -> 0.9567 ANLS
+                De 23946 se extraen 16275 -> 67.97%
+            - Val set: Extraer correctamente 2026 respuestas (Fallan 775) -> 0.9613 ANLS
+                De 2801 se extraen 2026 -> 72.33%
+    
+    v2 method:
+        Con OCR por defecto:
+            - Train set: Extraer correctamente 19106 respuestas (Fallan 4840) -> 0.8078 ANLS
+                De 23946 se extraen 19106 -> 59.31%
+            - Val set: Extraer correctamente 2244 respuestas (Fallan 557) -> 0.8058 ANLS
+                De 2801 se extraen 2244 -> 59.30%
+
+        Con OCR de la API de Miscrosoft:
+            - Train set: Extraer correctamente 20544 respuestas (Fallan 3402) -> 0.8384 ANLS
+                De 23946 se extraen 20544 -> 67.97%
+            - Val set: Extraer correctamente 2479 respuestas (Fallan 322) -> 0.8632 ANLS
+                De 2801 se extraen 2479 -> 72.33%
+
+    v1-v2 method:
+        Con OCR por defecto:
+            - Train set: Extraer correctamente 19139 respuestas (Fallan 4807) -> 0.8012 ANLS
+                De 23946 se extraen 19139 -> 79.92%
+            - Val set: Extraer correctamente 2244 respuestas (Fallan 557) -> 0.8008 ANLS
+                De 2801 se extraen 2244 -> 80.11%
+
+        Con OCR de la API de Miscrosoft:
+            - Train set: Extraer correctamente 20574 respuestas (Fallan 3372) -> 0.8306 ANLS
+                De 23946 se extraen 20574 -> 85.92%
+            - Val set: Extraer correctamente 2481 respuestas (Fallan 320) -> 0.8560 ANLS
+                De 2801 se extraen 2481 -> 88.58%
+
+    v2-v1 method:
+        Con OCR por defecto:
+            - Train set: Extraer correctamente 19139 respuestas (Fallan 4807) -> 0.8074 ANLS
+                De 23946 se extraen 19139 -> 79.92%
+            - Val set: Extraer correctamente 2244 respuestas (Fallan 557) -> 0.8058 ANLS
+                De 2801 se extraen 2244 -> 80.11%
+
+        Con OCR de la API de Miscrosoft:
+            - Train set: Extraer correctamente 20574 respuestas (Fallan 3372) -> 0.8380 ANLS
+                De 23946 se extraen 20574 -> 85.92%
+            - Val set: Extraer correctamente 2481 respuestas (Fallan 320) -> 0.8624 ANLS
+                De 2801 se extraen 2481 -> 88.58%
+
+** Dar una BASELINE para infographicVQA
 
 
 accelerate launch \
@@ -68,15 +114,10 @@ accelerate launch \
     --load_state docvqa_msr_ocr_finetune_base_30epoch \
     --save_model
 
-    accelerate launch \
-        --config_file launch_config.yaml docvqa_runner.py \
-        --dataset_file cached_datasets/docvqa_cached_extractive_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
-        --mode val \
-        --model_folder docvqa_msr_ocr_finetune_base_30epoch \
-        --load_state docvqa_msr_ocr_finetune_base_30epoch
 
-
-
--- Forma OCR
-para cada pregunta se tienen las mismas palabras
-
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/infographicvqa_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
+    --num_epochs 15 \
+    --save_model \
+    --model_folder infographicvqa_msr_ocr_10epoch_v1 

@@ -12,7 +12,7 @@ import logging
 from datasets import load_from_disk, DatasetDict, concatenate_datasets, Dataset
 from transformers import PreTrainedModel, AutoModelForQuestionAnswering, AutoTokenizer, AutoFeatureExtractor
 from modelling.utils import get_optimizers, create_and_fill_np_array, write_data, anls_metric_str, postprocess_qa_predictions, bbox_string
-from modelling.tokenization import tokenize_docvqa
+from modelling.tokenization import tokenize_dataset
 from modelling.data_collator import DocVQACollator
 
 
@@ -196,18 +196,24 @@ def main():
             "train": dataset["train"].select(range(n_limit)), 
             "val": dataset['val'].select(range(n_limit)), 
             "test": dataset['test'].select(range(n_limit))})
-    
+
+    use_msr = "msr_True" in args.dataset_file
+    dataset_name = "docvqa" if "docvqa" in args.dataset_file else "infographicvqa"
+
     # Image directory
     image_dir = {
-        "train": "data/docvqa/train", 
-        "val": "data/docvqa/val", 
-        "test": "data/docvqa/test"}
+        "train": f"data/{dataset_name}/train", 
+        "val": f"data/{dataset_name}/val", 
+        "test": f"data/{dataset_name}/test"}
+
     
-    tokenized = dataset.map(tokenize_docvqa,
+    
+    tokenized = dataset.map(tokenize_dataset,
                             fn_kwargs={"tokenizer": tokenizer,
                                        "img_dir": image_dir,
-                                       "use_msr_ocr": True, # Maybe pass as parameter in the future
+                                       "use_msr_ocr": use_msr, # Maybe pass as parameter in the future
                                        "doc_stride": args.stride,
+                                       "dataset": dataset_name, 
                                        "ignore_unmatched_answer_span_during_train": bool(args.ignore_unmatched_span)},
                             batched=True, num_proc=8,
                             load_from_cache_file=True,

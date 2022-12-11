@@ -43,7 +43,6 @@ def convert_infographicvqa_to_cache(train_file, val_file, test_file,
                     for ans in answers:
                         new_answers.append(ans.lower() if lowercase else ans)
                     new_answers = list(set(new_answers))
-                    ## not added yet, later after processing, we add start and end as well.
                     new_all_data["original_answer"].append(new_answers)
                 else:
                     new_all_data[key].append(obj[key])
@@ -54,24 +53,34 @@ def convert_infographicvqa_to_cache(train_file, val_file, test_file,
             if read_msr_ocr:
                 ocr_file = f"data/infographicvqa/{split}/{split}_msr_ocr_results/{obj['ocr_output_file']}"
             else:
-                ocr_file = f"data/infographicvqa/{split}/infographicVQA_{split}_v1.0_ocr_results/{obj['ocr_output_file']}"
+                ocr_file = f"data/infographicvqa/{split}/infographicVQA_{split}_v1.0_ocr_outputs/{obj['ocr_output_file']}"
             ocr_data = read_data(ocr_file)
 
             if not read_msr_ocr: # Sin ocr mrs
-                new_all_data["image"] = f"infographicVQA_{split}_v1.0_images/{obj['ocr_output_file']}"
-                all_text = ' '.join([line['Text'] for line in ocr_data["LINE"]])
-                text, layout = [], []
-                for word in ocr_data["WORD"]:
-                    # Define each bbox with 2 points instead of 4
-                    BoundingBox = word['Geometry']["BoundingBox"]
+                new_all_data["image"].append(f"infographicVQA_{split}_v1.0_images/{obj['ocr_output_file']}")
+                if "LINE" in ocr_data.keys():
+                    all_text = ' '.join([line['Text'] for line in ocr_data["LINE"]])
+                    text, layout = [], []
+                    for word in ocr_data["WORD"]:
+                        # Define each bbox with 2 points instead of 4
+                        BoundingBox = word['Geometry']["BoundingBox"]
+                        new_x1 = BoundingBox["Left"]
+                        new_x2 = new_x1 + BoundingBox["Width"]
+                        new_y2 = BoundingBox["Top"]
+                        new_y1 = new_y2 - BoundingBox["Height"]
+                        if word["Text"].startswith("http") or word["Text"] == "":
+                            continue
+                        text.append(word["Text"].lower() if lowercase else word["Text"])
+                        layout.append([new_x1, new_y1, new_x2, new_y2])
+                else:
+                    # If the ocr does not have any text, the text is an empty string and the bounding box covers the whole image
+                    BoundingBox = ocr_data["PAGE"][0]['Geometry']["BoundingBox"]
                     new_x1 = BoundingBox["Left"]
                     new_x2 = new_x1 + BoundingBox["Width"]
                     new_y2 = BoundingBox["Top"]
                     new_y1 = new_y2 - BoundingBox["Height"]
-                    if word["Text"].startswith("http") or word["text"] == "":
-                        continue
-                    text.append(word["Text"].lower() if lowercase else word["Text"])
-                    layout.append([new_x1, new_y1, new_x2, new_y2])
+                    text = [""]
+                    layout = [[new_x1, new_y1, new_x2, new_y2]]
             else:
                 if not ocr_data["is_resized"]:
                     new_all_data["image"].append(f"infographicVQA_{split}_v1.0_images/{obj['image_local_name']}")
@@ -107,10 +116,7 @@ def convert_infographicvqa_to_cache(train_file, val_file, test_file,
                 elif extraction_method == "v1_v2":
                     processed_answers, all_not_found = extract_start_end_index_v1(before_processed_new_answers, before_processed_text)
                     if all_not_found:
-                        print("Not found")
                         processed_answers, _ = extract_start_end_index_v2(before_processed_new_answers, before_processed_text)
-                    else:
-                        print("Found")
                 elif extraction_method == "v2_v1":
                     processed_answers, all_not_found = extract_start_end_index_v2(before_processed_new_answers, before_processed_text)
                     if all_not_found:
@@ -132,8 +138,6 @@ def convert_infographicvqa_to_cache(train_file, val_file, test_file,
             current_extracted_not_clean = []
             for ans in processed_answers:
                 if ans['start_word_position'] != -1:
-                    # candidate_tokens = text[ans['start_word_position']:ans['end_word_position']+1]
-                    # candidate_tokens = [clean_text(x) for x in candidate_tokens]
                     current_extracted_not_clean.append(' '.join(text[ans['start_word_position']:ans['end_word_position']+1]))
             if len(current_extracted_not_clean) > 0:
                 # _, anls = anls_metric_str(predictions=[current_extracted_not_clean], gold_labels=[new_answers])
@@ -148,6 +152,7 @@ def convert_infographicvqa_to_cache(train_file, val_file, test_file,
               f"extractive answer found: {num_answer_span_found} "
               f"answer not found: {total_num - num_answer_span_found}", flush=True)
         data_dict[split] = Dataset.from_dict(new_all_data)
+        
     all_data = DatasetDict(data_dict)
     return all_data
 
@@ -155,14 +160,18 @@ def convert_infographicvqa_to_cache(train_file, val_file, test_file,
 
 if __name__ == '__main__':
     all_lowercase = True
-    read_msr = False
-    answer_extraction_methods = ["v1"] ## default v1, v2, v1_v2, v2_v1
+    read_msr = True
+    answer_extraction_methods = ["v2"]
     for answer_extraction_method in answer_extraction_methods:
-        dataset = convert_infographicvqa_to_cache(
-                                        "data/infographicvqa/train/infographicVQA_train_v1.0.json",
-                                        "data/infographicvqa/val/infographicVQA_val_v1.0.json",
-                                        "data/infographicvqa/test/infographicVQA_test_v1.0.json",
-                                        lowercase=all_lowercase,read_msr_ocr=read_msr,
-                                        extraction_method=answer_extraction_method)
-        cached_filename = f"cached_datasets/infographicvqa_cached_extractive_all_lowercase_{all_lowercase}_msr_ocr_{read_msr}_extraction_{answer_extraction_method}_enumeration"
-        dataset.save_to_disk(cached_filename)
+        for read_msr in [True, False]:
+            if read_msr == True and answer_extraction_method == "v1_v2":
+                continue
+            print(answer_extraction_method.capitalize(), read_msr)
+            dataset = convert_infographicvqa_to_cache(
+                                            "data/infographicvqa/train/infographicVQA_train_v1.0.json",
+                                            "data/infographicvqa/val/infographicVQA_val_v1.0.json",
+                                            "data/infographicvqa/test/infographicVQA_test_v1.0.json",
+                                            lowercase=all_lowercase,read_msr_ocr=read_msr,
+                                            extraction_method=answer_extraction_method)
+            cached_filename = f"cached_datasets/infographicvqa_all_lowercase_{all_lowercase}_msr_ocr_{read_msr}_extraction_{answer_extraction_method}_enumeration"
+            dataset.save_to_disk(cached_filename)     

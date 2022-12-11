@@ -30,11 +30,12 @@ handling the out of maximum length reference:
 https://github.com/huggingface/notebooks/blob/main/examples/question_answering.ipynb
 """
 
-def tokenize_docvqa(examples,
+def tokenize_dataset(examples,
                     tokenizer: LayoutLMv3TokenizerFast,
                     img_dir: Dict[str, str],
                     add_metadata: bool = True,
                     use_msr_ocr: bool = False,
+                    dataset: str = "docvqa",
                     doc_stride: int = 128,
                     ignore_unmatched_answer_span_during_train: bool = True): ## doc stride for sliding window, if 0, means no sliding window.
 
@@ -43,29 +44,22 @@ def tokenize_docvqa(examples,
     for idx, (question, image_path, words, layout) in enumerate(zip(examples["question"], examples["image"], examples["words"], examples["layout"])):
         current_metadata = {}
         file = os.path.join(img_dir[examples["data_split"][idx]], image_path)
-        # img = Image.open(file).convert("RGB")
         answer_list = examples["processed_answers"][idx] if "processed_answers" in examples else []
         original_answer = examples["original_answer"][idx] if "original_answer" in examples else []
-        # image_id = f"{examples['ucsf_document_id'][idx]}_{examples['ucsf_document_page_no'][idx]}"
         if len(words) == 0 and current_split == "train":
             continue
         return_overflowing_tokens = doc_stride > 0
         # Tokenize text
-        """tokenized_res = tokenizer.encode_plus(text=question, text_pair=words, boxes=layout, add_special_tokens=True,
-                                              max_length=512, truncation="only_second",
-                                              return_offsets_mapping=True, stride=doc_stride,
-                                              return_overflowing_tokens=return_overflowing_tokens)"""
         tokenized_res = tokenizer(text=question, text_pair=words, boxes=layout, add_special_tokens=True,
                                               max_length=512, truncation="only_second",
                                               return_offsets_mapping=True, stride=doc_stride,
                                               return_overflowing_tokens=return_overflowing_tokens)
-        # sample_mapping = tokenized_res.pop("overflow_to_sample_mapping")
         offset_mapping = tokenized_res.pop("offset_mapping")
         if not return_overflowing_tokens:
             offset_mapping = [offset_mapping]
 
         answer_ids = [[0] for _ in range(len(original_answer))]
-        if not use_msr_ocr:
+        if not (use_msr_ocr and dataset == "docvqa"):
             img = cv2.imread(file)
             height, width = img.shape[:2]
 
@@ -99,7 +93,7 @@ def tokenize_docvqa(examples,
                     features["input_ids"].append(input_ids)
                     boxes_norms = []
                     for box in bboxes:
-                        box_norm = box if use_msr_ocr else bbox_string([box[0], box[1], box[2], box[3]], width, height)
+                        box_norm = box if use_msr_ocr and dataset == "docvqa" else bbox_string([box[0], box[1], box[2], box[3]], width, height)
                         boxes_norms.append(box_norm)
                     features["bbox"].append(boxes_norms)
                     features["start_positions"].append(subword_start)
@@ -126,7 +120,7 @@ def tokenize_docvqa(examples,
                 features["input_ids"].append(input_ids)
                 boxes_norms = []
                 for box in bboxes:
-                    box_norm = box if use_msr_ocr else bbox_string([box[0], box[1], box[2], box[3]], width, height)
+                    box_norm = box if use_msr_ocr and dataset == "docvqa" else bbox_string([box[0], box[1], box[2], box[3]], width, height)
                     boxes_norms.append(box_norm)
                 features["bbox"].append(boxes_norms)
                 features["start_positions"].append(subword_start)
