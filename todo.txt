@@ -1,13 +1,10 @@
-upload to github
-
-docvqa_runner to generalized runner maybe it is not possible
-
 cosine/negative exponential scheduler might be more useful
+
+Check/improve batch size configuration
 
 MORE PARAMETERS FOR RUNNER:
     unify model_folder and checkpoint (maybe checkpoint being a boolean for training frm the model_folder model), use the pretained_model arg
     results file name
-    Choose dataset
     Choose scheduler/optimizer (not prioritary rn)
     TODO in modelling.get_optimizers
 
@@ -26,16 +23,18 @@ Randomly show some images along with questions/gt answer/predicted answer
 
 ** Como utiliza el modelo los tokens del contexto (texto del documento/infographic) y la pregunta
 
+El tokenizer recibe tanto pregunta como contexto y los une con un caracter separador <sep>
+
 ** Mirar que utiliza la loss
     Media de la CrossEntropyLoss entre los start/end logits y las posiciones reales.
 
 ** Entrenar ultimas capas solo? 
     Segun el paper original, para docVQA hace un finetunning a partir del modelo base:
-        Batch size 128 (imposible xd)
+        Batch size 128 (jk.. unless..)
         LR 3e-5
         Warmup ratio 0.48 - https://github.com/huggingface/transformers/issues/6673
 
-** Aproximar resultados de DocVQA a los dados por el paper original -> 0.715184467578495
+** Aproximar resultados de DocVQA a los dados por el paper original -> 0.715184467578495 lr=5e-6
     Con OCR por defecto:
         - Train set: Extraer correctamente 36759 respuestas (Fallan 2704) -> 0.9646 ANLS
         - Val set: Extraer correctamente 4950 respuestas (Fallan 399) -> 0.9611 ANLS
@@ -66,9 +65,9 @@ Randomly show some images along with questions/gt answer/predicted answer
 
         Con OCR de la API de Miscrosoft:
             - Train set: Extraer correctamente 20544 respuestas (Fallan 3402) -> 0.8384 ANLS
-                De 23946 se extraen 20544 -> 67.97%
+                De 23946 se extraen 20544 -> 85.80%
             - Val set: Extraer correctamente 2479 respuestas (Fallan 322) -> 0.8632 ANLS
-                De 2801 se extraen 2479 -> 72.33%
+                De 2801 se extraen 2479 -> 88.50%
 
     v1-v2 method:
         Con OCR por defecto:
@@ -97,27 +96,32 @@ Randomly show some images along with questions/gt answer/predicted answer
                 De 2801 se extraen 2481 -> 88.58%
 
 ** Dar una BASELINE para infographicVQA
+    MSR OCR:
+    Default OCR:
+        v1, msr ocr, lr 5e-6, 50 epoch, batch size 4, anls 0.3267328187534782
+        v1, msr ocr, lr 3e-5, 50 epoch, batch size 48, anls 0.29003773461478916
+        v1, msr ocr, lr 5e-6, 15 epoch, anls 0.31380391974946414
+        v1, msr ocr, lr 5e-6, 15 epoch sin ignorar respuestas no encontradas, anls 0.3084587113074302
+        v1, msr ocr, lr 3e-5, 28 epoch, anls 0.30597553278984235
+        v2-v1, msr ocr, lr 5e-6, 15 epoch, anls 0.31386998948851563
 
-
-accelerate launch \
-    --config_file launch_config.yaml docvqa_runner.py \
-    --dataset_file cached_datasets/docvqa_cached_extractive_all_lowercase_True_extraction_v1_v2_enumeration \
-    --num_epochs 40 \
-    --save_model \
-    --model_folder docvqa_finetune_base_40epoch
     
 accelerate launch \
-    --config_file launch_config.yaml docvqa_runner.py \
+    --config_file launch_config.yaml model_runner.py \
     --dataset_file cached_datasets/docvqa_cached_extractive_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
-    --num_epochs 15 \
-    --model_folder docvqa_msr_ocr_finetune_base_30epoch \
-    --load_state docvqa_msr_ocr_finetune_base_30epoch \
+    --model_folder docvqa_msr_ocr_50epoch_v1_ignore_unmatched_span_True_batchsize_128_lr_5eneg4 \
+    --num_epochs 50 \
+    --ignore_unmatched_span 1 \
+    --train_batch_size 128 \
+    --learning_rate 3e-5 \
     --save_model
-
 
 accelerate launch \
     --config_file launch_config.yaml model_runner.py \
     --dataset_file cached_datasets/infographicvqa_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
-    --num_epochs 15 \
+    --num_epochs 50 \
+    --ignore_unmatched_span 1 \
+    --train_batch_size 4 \
+    --learning_rate 5e-6 \
     --save_model \
-    --model_folder infographicvqa_msr_ocr_10epoch_v1 
+    --model_folder infographicvqa_msr_ocr_50epoch_v1_ignore_unmatched_span_True_batchsize_4

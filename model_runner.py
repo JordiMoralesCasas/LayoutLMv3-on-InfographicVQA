@@ -34,24 +34,22 @@ logger.setLevel(logging.INFO)
 def parse_arguments():
     parser = argparse.ArgumentParser()
 
-    #parser.add_argument("--device", default="cuda:0", type=str)
     parser.add_argument('--dataset_file', default="data/cached_datasets/docvqa_cached_extractive_all_lowercase_True_extraction_v1_enumeration", type=str)
     parser.add_argument("--model_folder", default="layoutlmv3-extractive-uncased", type=str)
     parser.add_argument("--load_state", default=None, type=str)
-
 
     parser.add_argument("--mode", default="train", type=str, choices=["train", "val", "test"])
     parser.add_argument("--train_batch_size", default=4, type=int, help="Total batch size for training.")
     parser.add_argument("--val_batch_size", default=8, type=int, help="Total batch size for validation.")
     parser.add_argument("--test_batch_size", default=8, type=int, help="Total batch size for test.")
+    parser.add_argument("--num_workers", default=4, type=int, help="Number of workers.")
     parser.add_argument("--learning_rate", default=5e-6, type=float, help="The peak learning rate.")
-    parser.add_argument("--num_epochs", default=1, type=int)
+    parser.add_argument("--num_epochs", default=1, type=int, help="Number of epochs during training.")
     parser.add_argument('--seed', type=int, default=42, help="random seed for initialization")
     parser.add_argument('--max_grad_norm', default=1.0, type=float, help='gradient clipping max norm')
     parser.add_argument('--fp16', default=True, action='store_true', help="Whether to use 16-bit 32-bit training")
     parser.add_argument('--debug_run', default=False, action='store_true', help="Run model with 100 samples. For debugging purposes.")
     parser.add_argument('--save_model', default=False, action='store_true', help="Save the model after training")
-
 
     parser.add_argument('--pretrained_model_name', default='microsoft/layoutlmv3-base', type=str, help="pretrained model name")
     parser.add_argument('--stride', default=0, type=int, help="document stride for sliding window, >0 means sliding window, overlapping window")
@@ -87,18 +85,24 @@ def train(args,
     for epoch in range(num_epochs):
         total_loss = 0
         model.train()
+        # https://medium.com/@davidlmorton/increasing-mini-batch-size-without-increasing-memory-6794e10db672
         for iter, batch in tqdm(enumerate(train_dataloader, 1), desc="--training batch", total=len(train_dataloader)):
             with torch.cuda.amp.autocast(enabled=bool(args.fp16)):
                 output = model(**batch)
                 # Total span extraction loss is the sum of a Cross-Entropy for the start and end positions.
                 loss = output.loss
             total_loss += loss.item()
+
             accelerator.backward(loss)
             accelerator.clip_grad_norm_(model.parameters(), args.max_grad_norm)
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad()
-            model.zero_grad()
+
+            if (iter+1) % (args.train_batch_size/4) == 0:
+                #print(iter)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+                model.zero_grad()
+
         accelerator.print(
             f"Finish epoch: {epoch}, loss: {total_loss:.2f}, mean loss: {total_loss / len(train_dataloader):.2f}",
             flush=True)
@@ -191,13 +195,14 @@ def main():
 
     if args.debug_run:
         # For debugging. Use only 100 samples.
+        args.save_model = False
         n_limit = 100
         dataset = DatasetDict({
             "train": dataset["train"].select(range(n_limit)), 
             "val": dataset['val'].select(range(n_limit)), 
             "test": dataset['test'].select(range(n_limit))})
 
-    use_msr = "msr_True" in args.dataset_file
+    use_msr = "msr_ocr_True" in args.dataset_file
     dataset_name = "docvqa" if "docvqa" in args.dataset_file else "infographicvqa"
 
     # Image directory
@@ -206,8 +211,6 @@ def main():
         "val": f"data/{dataset_name}/val", 
         "test": f"data/{dataset_name}/test"}
 
-    
-    
     tokenized = dataset.map(tokenize_dataset,
                             fn_kwargs={"tokenizer": tokenizer,
                                        "img_dir": image_dir,
@@ -220,21 +223,12 @@ def main():
                             remove_columns=dataset["val"].column_names
                             )
     accelerator.print(tokenized)
-    train_dataloader = DataLoader(tokenized["train"].remove_columns("metadata"), batch_size=args.train_batch_size,
-                                  shuffle=True, num_workers=4, pin_memory=True, collate_fn=collator)
-    valid_dataloader = DataLoader(tokenized["val"].remove_columns("metadata"), batch_size=args.val_batch_size,
-                                                collate_fn=collator, num_workers=4, shuffle=False)
-    if args.mode == "train":
-        # Not needed since we should finetune from base model
-        def only_finetune_qa_outputs(model):
-            for param in model.parameters():
-                param.requires_grad = False
-            model.qa_outputs.out_proj.bias.requires_grad = True
-            model.qa_outputs.out_proj.weight.requires_grad = True
-            model.qa_outputs.dense.bias.requires_grad = True
-            model.qa_outputs.dense.weight.requires_grad = True
-        # only_finetune_qa_outputs(model)
 
+    train_dataloader = DataLoader(tokenized["train"].remove_columns("metadata"), batch_size=4,
+                                  shuffle=True, num_workers=args.num_workers, pin_memory=True, collate_fn=collator)
+    valid_dataloader = DataLoader(tokenized["val"].remove_columns("metadata"), batch_size=args.val_batch_size,
+                                                collate_fn=collator, num_workers=args.num_workers, shuffle=False)
+    if args.mode == "train":
         train(args=args,
               tokenizer=tokenizer,
               model=model,
@@ -258,7 +252,7 @@ def main():
     
     else:
         test_loader = DataLoader(tokenized["test"].remove_columns("metadata"), batch_size=args.test_batch_size,
-                                                    collate_fn=collator, num_workers=4, shuffle=False)
+                                                    collate_fn=collator, num_workers=args.num_workers, shuffle=False)
         checkpoint = torch.load(f"model_files/{args.model_folder}/state_dict.pth", map_location="cpu")
         model.load_state_dict(checkpoint, strict=True)
         model, test_loader = accelerator.prepare(model, test_loader)

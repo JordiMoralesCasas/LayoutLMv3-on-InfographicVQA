@@ -270,6 +270,14 @@ def anls_metric_str(predictions: List[str], gold_labels: List[List[str]], tau=0.
         res.append(max_s)
     return res, sum(res)/len(res)
 
+def only_finetune_qa_outputs(model):
+    for param in model.parameters():
+        param.requires_grad = False
+    model.qa_outputs.out_proj.bias.requires_grad = True
+    model.qa_outputs.out_proj.weight.requires_grad = True
+    model.qa_outputs.dense.bias.requires_grad = True
+    model.qa_outputs.dense.weight.requires_grad = True
+
 if __name__ == '__main__':
 
     # pred = "what does it mean?"

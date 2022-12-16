@@ -9,7 +9,12 @@ from preprocess.extract_positions import extract_start_end_index_v1, extract_sta
 from modelling.utils import read_data, bbox_string
 
 from datasets import load_from_disk
-"""
+
+
+def convert_docvqa_to_cache(train_file, val_file, test_file, 
+                            lowercase: bool, read_msr_ocr: bool = False,
+                            extraction_method="v1") -> DatasetDict:
+    """
     Convert the DocVQA dataset into dataset cache, which is a dictionary of Dataset objects.
     At the same time, we extract the answer spans.
 
@@ -17,13 +22,9 @@ from datasets import load_from_disk
     https://github.com/allanj/LayoutLMv3-DocVQA/tree/master/preprocess
     !!!
 """
-
-def convert_docvqa_to_cache(train_file, val_file, test_file, 
-                            lowercase: bool, read_msr_ocr: bool = False,
-                            extraction_method="v1") -> DatasetDict:
     data_dict = {}
     for file in [train_file, val_file, test_file]:
-        new_all_data = defaultdict(list) # Each entry of the data dictionary will be a list
+        new_all_data = defaultdict(list) # Each entry of the data dictionary will be a list 
         data = read_data(file)
         split = data["dataset_split"]
         objs = data['data']

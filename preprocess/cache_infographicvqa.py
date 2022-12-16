@@ -160,12 +160,9 @@ def convert_infographicvqa_to_cache(train_file, val_file, test_file,
 
 if __name__ == '__main__':
     all_lowercase = True
-    read_msr = True
-    answer_extraction_methods = ["v2"]
+    answer_extraction_methods = ["v1", "v1_v2", "v2_v1", "v2"]
     for answer_extraction_method in answer_extraction_methods:
         for read_msr in [True, False]:
-            if read_msr == True and answer_extraction_method == "v1_v2":
-                continue
             print(answer_extraction_method.capitalize(), read_msr)
             dataset = convert_infographicvqa_to_cache(
                                             "data/infographicvqa/train/infographicVQA_train_v1.0.json",
