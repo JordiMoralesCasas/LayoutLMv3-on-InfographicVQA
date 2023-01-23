@@ -2,7 +2,10 @@ cosine/negative exponential scheduler might be more useful
 
 Check/improve batch size configuration
 
+When using load_state, do evaluation before training so we don't overwrite the previous best model if the new is worse
+
 MORE PARAMETERS FOR RUNNER:
+    ignore_unmatched_span change to bool
     unify model_folder and checkpoint (maybe checkpoint being a boolean for training frm the model_folder model), use the pretained_model arg
     results file name
     Choose scheduler/optimizer (not prioritary rn)
@@ -19,13 +22,10 @@ Cache dataset files and images all at once (cache dataset after tokenization/dat
 
 Randomly show some images along with questions/gt answer/predicted answer
 
-------- PARA PROXIMA REUNION -------
+- Como utiliza el modelo los tokens del contexto (texto del documento/infographic) y la pregunta
+    El tokenizer recibe tanto pregunta como contexto y los une con un caracter separador <sep>
 
-** Como utiliza el modelo los tokens del contexto (texto del documento/infographic) y la pregunta
-
-El tokenizer recibe tanto pregunta como contexto y los une con un caracter separador <sep>
-
-** Mirar que utiliza la loss
+- Mirar que utiliza la loss
     Media de la CrossEntropyLoss entre los start/end logits y las posiciones reales.
 
 ** Entrenar ultimas capas solo? 
@@ -34,88 +34,56 @@ El tokenizer recibe tanto pregunta como contexto y los une con un caracter separ
         LR 3e-5
         Warmup ratio 0.48 - https://github.com/huggingface/transformers/issues/6673
 
-** Aproximar resultados de DocVQA a los dados por el paper original -> 0.715184467578495 lr=5e-6
-    Con OCR por defecto:
-        - Train set: Extraer correctamente 36759 respuestas (Fallan 2704) -> 0.9646 ANLS
-        - Val set: Extraer correctamente 4950 respuestas (Fallan 399) -> 0.9611 ANLS
-    Con OCR de la API de Miscrosoft:
-        - Train set: Extraer correctamente 37888 respuestas (Fallan 1575) -> 0.9819 ANLS
-        - Val set: Extraer correctamente 5090 respuestas (Fallan 259) -> 0.9742 ANLS
-
-** Ver porcentage de extractive (concretamente de respuesta explicita en el texto)
-    v1 method:
-        Con OCR por defecto:
-            - Train set: Extraer correctamente 14202 respuestas (Fallan 9744) -> 0.9556 ANLS
-                De 23946 se extraen 14202 -> 59.31%
-            - Val set: Extraer correctamente 1661 respuestas (Fallan 1140) -> 0.9622 ANLS
-                De 2801 se extraen 1661 -> 59.30%
-
-        Con OCR de la API de Miscrosoft:
-            - Train set: Extraer correctamente 16275 respuestas (Fallan 7671) -> 0.9567 ANLS
-                De 23946 se extraen 16275 -> 67.97%
-            - Val set: Extraer correctamente 2026 respuestas (Fallan 775) -> 0.9613 ANLS
-                De 2801 se extraen 2026 -> 72.33%
+- Aproximar resultados de DocVQA a los dados por el paper original
+    v1, msr ocr, lr 5e-6, 50 epoch, batch size 4, anls 0.715184467578495
+    v1, msr ocr, lr 3e-5, 100 epoch, batch size 128, anls 0.6811020509601284
+    v1, msr ocr, lr 2e-5, 75 epoch, batch size 16, anls 0.70639365332834
     
-    v2 method:
-        Con OCR por defecto:
-            - Train set: Extraer correctamente 19106 respuestas (Fallan 4840) -> 0.8078 ANLS
-                De 23946 se extraen 19106 -> 59.31%
-            - Val set: Extraer correctamente 2244 respuestas (Fallan 557) -> 0.8058 ANLS
-                De 2801 se extraen 2244 -> 59.30%
 
-        Con OCR de la API de Miscrosoft:
-            - Train set: Extraer correctamente 20544 respuestas (Fallan 3402) -> 0.8384 ANLS
-                De 23946 se extraen 20544 -> 85.80%
-            - Val set: Extraer correctamente 2479 respuestas (Fallan 322) -> 0.8632 ANLS
-                De 2801 se extraen 2479 -> 88.50%
+- Ver porcentage de extractive (concretamente de respuesta explicita en el texto)
+    - Train set: Extraer correctamente 16275 respuestas (Fallan 7671) -> 0.9567 ANLS
+        De 23946 se extraen 16275 -> 67.97%
+    - Val set: Extraer correctamente 2026 respuestas (Fallan 775) -> 0.9613 ANLS
+        De 2801 se extraen 2026 -> 72.33%
 
-    v1-v2 method:
-        Con OCR por defecto:
-            - Train set: Extraer correctamente 19139 respuestas (Fallan 4807) -> 0.8012 ANLS
-                De 23946 se extraen 19139 -> 79.92%
-            - Val set: Extraer correctamente 2244 respuestas (Fallan 557) -> 0.8008 ANLS
-                De 2801 se extraen 2244 -> 80.11%
+- Dar una BASELINE para infographicVQA
+    Baseline:
+        0.23146850185984247
 
-        Con OCR de la API de Miscrosoft:
-            - Train set: Extraer correctamente 20574 respuestas (Fallan 3372) -> 0.8306 ANLS
-                De 23946 se extraen 20574 -> 85.92%
-            - Val set: Extraer correctamente 2481 respuestas (Fallan 320) -> 0.8560 ANLS
-                De 2801 se extraen 2481 -> 88.58%
+    Finetune from LayoutLMv3 base
+        MSR OCR:
+        Default OCR:
+            v1, msr ocr, lr 5e-6, 50 epoch, batch size 4, anls 0.3267328187534782
+            v1, msr ocr, lr 3e-5, 50 epoch, batch size 48, anls 0.29003773461478916
+            v1, msr ocr, lr 5e-6, 15 epoch, anls 0.31380391974946414
+            v1, msr ocr, lr 5e-6, 15 epoch sin ignorar respuestas no encontradas, anls 0.3084587113074302
+            v1, msr ocr, lr 3e-5, 28 epoch, anls 0.30597553278984235
 
-    v2-v1 method:
-        Con OCR por defecto:
-            - Train set: Extraer correctamente 19139 respuestas (Fallan 4807) -> 0.8074 ANLS
-                De 23946 se extraen 19139 -> 79.92%
-            - Val set: Extraer correctamente 2244 respuestas (Fallan 557) -> 0.8058 ANLS
-                De 2801 se extraen 2244 -> 80.11%
-
-        Con OCR de la API de Miscrosoft:
-            - Train set: Extraer correctamente 20574 respuestas (Fallan 3372) -> 0.8380 ANLS
-                De 23946 se extraen 20574 -> 85.92%
-            - Val set: Extraer correctamente 2481 respuestas (Fallan 320) -> 0.8624 ANLS
-                De 2801 se extraen 2481 -> 88.58%
-
-** Dar una BASELINE para infographicVQA
-    MSR OCR:
-    Default OCR:
-        v1, msr ocr, lr 5e-6, 50 epoch, batch size 4, anls 0.3267328187534782
-        v1, msr ocr, lr 3e-5, 50 epoch, batch size 48, anls 0.29003773461478916
-        v1, msr ocr, lr 5e-6, 15 epoch, anls 0.31380391974946414
-        v1, msr ocr, lr 5e-6, 15 epoch sin ignorar respuestas no encontradas, anls 0.3084587113074302
-        v1, msr ocr, lr 3e-5, 28 epoch, anls 0.30597553278984235
-        v2-v1, msr ocr, lr 5e-6, 15 epoch, anls 0.31386998948851563
-
-    
+# Finetune DocVQA
 accelerate launch \
     --config_file launch_config.yaml model_runner.py \
     --dataset_file cached_datasets/docvqa_cached_extractive_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
-    --model_folder docvqa_msr_ocr_50epoch_v1_ignore_unmatched_span_True_batchsize_128_lr_5eneg4 \
-    --num_epochs 50 \
+    --model_folder docvqa_msr_ocr_75epoch_v1_ignore_unmatched_span_True_batchsize_16_lr_2eneg5 \
+    --num_epochs 75 \
     --ignore_unmatched_span 1 \
-    --train_batch_size 128 \
-    --learning_rate 3e-5 \
+    --train_batch_size 16 \
+    --learning_rate 2e-5 \
     --save_model
 
+# Continue finetuning DocVQA
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/docvqa_cached_extractive_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
+    --model_folder docvqa_msr_ocr_100epoch_v1_ignore_unmatched_span_True_batchsize_16_lr_2eneg5 \
+    --load_state docvqa_msr_ocr_50epoch_v1_ignore_unmatched_span_True_batchsize_16_lr_2eneg5 \
+    --num_epochs 50 \
+    --ignore_unmatched_span 1 \
+    --train_batch_size 8 \
+    --learning_rate 1e-5 \
+    --save_model \
+    --warmup_step 500
+
+# Finetune InfographicVQA
 accelerate launch \
     --config_file launch_config.yaml model_runner.py \
     --dataset_file cached_datasets/infographicvqa_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
@@ -125,3 +93,26 @@ accelerate launch \
     --learning_rate 5e-6 \
     --save_model \
     --model_folder infographicvqa_msr_ocr_50epoch_v1_ignore_unmatched_span_True_batchsize_4
+
+# Validate InfographicVQA on finetuned DocVQA model
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/infographicvqa_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
+    --load_state docvqa_msr_ocr_finetune_base_50epoch_smaller_lr \
+    --mode val \
+    --val_batch_size 4
+
+# InfographicVQA ratio experiment on finetuned DocVQA model
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/infographicvqa_document_ratio_experiment_msr_ocr_True_extraction_v1_enumeration \
+    --load_state docvqa_msr_ocr_finetune_base_50epoch_smaller_lr \
+    --mode val \
+    --val_batch_size 4
+
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/infographicvqa_only_non_extractive_experiment_msr_ocr_True_extraction_v1_enumeration \
+    --load_state docvqa_msr_ocr_finetune_base_50epoch_smaller_lr \
+    --mode val \
+    --val_batch_size 4

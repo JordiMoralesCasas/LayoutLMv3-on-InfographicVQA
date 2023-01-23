@@ -3,6 +3,8 @@ from collections import defaultdict
 from datasets import DatasetDict, Dataset
 from typing import List
 import json
+import pickle
+from PIL import Image
 import textdistance as td
 from preprocess.utils import anls_metric_str
 from preprocess.extract_positions import extract_start_end_index_v1, extract_start_end_index_v2
@@ -18,6 +20,13 @@ from datasets import load_from_disk
 def convert_infographicvqa_to_cache(train_file, val_file, test_file, 
                             lowercase: bool, read_msr_ocr: bool = False,
                             extraction_method="v1") -> DatasetDict:
+
+    # Experiment: Create dataset with extractive or non-extractive questions
+    if True:
+        list_file = open("notebooks/pickled_objects/extractive.list", "rb")
+        Id_list = pickle.load(list_file)
+        list_file.close()
+
     data_dict = {}
     for file in [train_file, val_file, test_file]:
         new_all_data = defaultdict(list) # Each entry of the data dictionary will be a list
@@ -32,6 +41,19 @@ def convert_infographicvqa_to_cache(train_file, val_file, test_file,
 
         # Loop over every question/answer pair in the dataset
         for obj_idx, obj in tqdm(enumerate(objs), desc="reading {}".format(split), total=len(objs)):
+            # Experiment: Create dataset with infographics with similar proportions as documents
+            if False:
+                image_path = f"data/infographicvqa/{split}/infographicVQA_{split}_v1.0_images/{obj['image_local_name']}"
+                image = Image.open(image_path)
+                image_ratio = image.width/image.height
+                if image_ratio < 0.6636871690622075 or image_ratio > 0.885544989926049:
+                    continue
+
+            # Experiment: Create dataset with extractive or non-extractive questions
+            if True:
+                if obj["questionId"] not in Id_list and split != "test":
+                    continue
+            
             new_answers = None
             for key in obj.keys():
                 if key == "question":
@@ -86,7 +108,7 @@ def convert_infographicvqa_to_cache(train_file, val_file, test_file,
                     new_all_data["image"].append(f"infographicVQA_{split}_v1.0_images/{obj['image_local_name']}")
                 else:
                     new_all_data["image"].append(f"resized_images/{obj['image_local_name']}")
-                
+                                
                 all_text = ' '.join([line['text'] for line in ocr_data['recognitionResults'][0]['lines']])
                 text, layout = [], []
                 for line in ocr_data["recognitionResults"][0]["lines"]:
@@ -160,9 +182,9 @@ def convert_infographicvqa_to_cache(train_file, val_file, test_file,
 
 if __name__ == '__main__':
     all_lowercase = True
-    answer_extraction_methods = ["v1", "v1_v2", "v2_v1", "v2"]
+    answer_extraction_methods = ["v1"]
     for answer_extraction_method in answer_extraction_methods:
-        for read_msr in [True, False]:
+        for read_msr in [True]:
             print(answer_extraction_method.capitalize(), read_msr)
             dataset = convert_infographicvqa_to_cache(
                                             "data/infographicvqa/train/infographicVQA_train_v1.0.json",
@@ -170,5 +192,5 @@ if __name__ == '__main__':
                                             "data/infographicvqa/test/infographicVQA_test_v1.0.json",
                                             lowercase=all_lowercase,read_msr_ocr=read_msr,
                                             extraction_method=answer_extraction_method)
-            cached_filename = f"cached_datasets/infographicvqa_all_lowercase_{all_lowercase}_msr_ocr_{read_msr}_extraction_{answer_extraction_method}_enumeration"
+            cached_filename = f"cached_datasets/infographicvqa_only_extractive_experiment_msr_ocr_{read_msr}_extraction_{answer_extraction_method}_enumeration"
             dataset.save_to_disk(cached_filename)     

@@ -1,0 +1,60 @@
+DocVQA
+    Con OCR por defecto:
+        - Train set: Extraer correctamente 36759 respuestas (Fallan 2704) -> 0.9646 ANLS
+        - Val set: Extraer correctamente 4950 respuestas (Fallan 399) -> 0.9611 ANLS
+    Con OCR de la API de Miscrosoft:
+        - Train set: Extraer correctamente 37888 respuestas (Fallan 1575) -> 0.9819 ANLS
+        - Val set: Extraer correctamente 5090 respuestas (Fallan 259) -> 0.9742 ANLS
+
+infographicVQA
+    v1 method:
+        Con OCR por defecto:
+            - Train set: Extraer correctamente 14202 respuestas (Fallan 9744) -> 0.9556 ANLS
+                De 23946 se extraen 14202 -> 59.31%
+            - Val set: Extraer correctamente 1661 respuestas (Fallan 1140) -> 0.9622 ANLS
+                De 2801 se extraen 1661 -> 59.30%
+
+        Con OCR de la API de Miscrosoft:
+            - Train set: Extraer correctamente 16275 respuestas (Fallan 7671) -> 0.9567 ANLS
+                De 23946 se extraen 16275 -> 67.97%
+            - Val set: Extraer correctamente 2026 respuestas (Fallan 775) -> 0.9613 ANLS
+                De 2801 se extraen 2026 -> 72.33%
+    
+    v2 method:
+        Con OCR por defecto:
+            - Train set: Extraer correctamente 19106 respuestas (Fallan 4840) -> 0.8078 ANLS
+                De 23946 se extraen 19106 -> 59.31%
+            - Val set: Extraer correctamente 2244 respuestas (Fallan 557) -> 0.8058 ANLS
+                De 2801 se extraen 2244 -> 59.30%
+
+        Con OCR de la API de Miscrosoft:
+            - Train set: Extraer correctamente 20544 respuestas (Fallan 3402) -> 0.8384 ANLS
+                De 23946 se extraen 20544 -> 85.80%
+            - Val set: Extraer correctamente 2479 respuestas (Fallan 322) -> 0.8632 ANLS
+                De 2801 se extraen 2479 -> 88.50%
+
+    v1-v2 method:
+        Con OCR por defecto:
+            - Train set: Extraer correctamente 19139 respuestas (Fallan 4807) -> 0.8012 ANLS
+                De 23946 se extraen 19139 -> 79.92%
+            - Val set: Extraer correctamente 2244 respuestas (Fallan 557) -> 0.8008 ANLS
+                De 2801 se extraen 2244 -> 80.11%
+
+        Con OCR de la API de Miscrosoft:
+            - Train set: Extraer correctamente 20574 respuestas (Fallan 3372) -> 0.8306 ANLS
+                De 23946 se extraen 20574 -> 85.92%
+            - Val set: Extraer correctamente 2481 respuestas (Fallan 320) -> 0.8560 ANLS
+                De 2801 se extraen 2481 -> 88.58%
+
+    v2-v1 method:
+        Con OCR por defecto:
+            - Train set: Extraer correctamente 19139 respuestas (Fallan 4807) -> 0.8074 ANLS
+                De 23946 se extraen 19139 -> 79.92%
+            - Val set: Extraer correctamente 2244 respuestas (Fallan 557) -> 0.8058 ANLS
+                De 2801 se extraen 2244 -> 80.11%
+
+        Con OCR de la API de Miscrosoft:
+            - Train set: Extraer correctamente 20574 respuestas (Fallan 3372) -> 0.8380 ANLS
+                De 23946 se extraen 20574 -> 85.92%
+            - Val set: Extraer correctamente 2481 respuestas (Fallan 320) -> 0.8624 ANLS
+                De 2801 se extraen 2481 -> 88.58%

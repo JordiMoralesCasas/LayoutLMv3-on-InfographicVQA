@@ -21,7 +21,6 @@ class DocVQACollator:
             for feature in batch:
                 remainder = [self.tokenizer.pad_token_id] * (max_label_length - len(feature["labels"]))
                 feature["label_ids"] = feature["labels"] + remainder
-                # print(feature["labels"])
                 feature.pop("labels")
         # Get image pixel values
         for feature in batch:

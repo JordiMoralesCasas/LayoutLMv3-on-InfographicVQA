@@ -43,6 +43,7 @@ def parse_arguments():
     parser.add_argument("--val_batch_size", default=8, type=int, help="Total batch size for validation.")
     parser.add_argument("--test_batch_size", default=8, type=int, help="Total batch size for test.")
     parser.add_argument("--num_workers", default=4, type=int, help="Number of workers.")
+    parser.add_argument("--warmup_step", default=0, type=float, help="Number of warmup steps. When 0, the lr decreses linearly to 0")
     parser.add_argument("--learning_rate", default=5e-6, type=float, help="The peak learning rate.")
     parser.add_argument("--num_epochs", default=1, type=int, help="Number of epochs during training.")
     parser.add_argument('--seed', type=int, default=42, help="random seed for initialization")
@@ -74,7 +75,7 @@ def train(args,
     t_total = int(len(train_dataloader) * num_epochs)
     # warmup_step = 0, linearly decreses from lr to 0
     optimizer, scheduler = get_optimizers(model=model, learning_rate=args.learning_rate, num_training_steps=t_total,
-                                          warmup_step=0, eps=1e-8)
+                                          warmup_step=args.warmup_step, eps=1e-8)
     # Prepare for distributed training
     model, optimizer, train_dataloader, valid_dataloader, scheduler = accelerator.prepare(model, optimizer, train_dataloader,
                                                                                valid_dataloader, scheduler)
@@ -224,11 +225,11 @@ def main():
                             )
     accelerator.print(tokenized)
 
-    train_dataloader = DataLoader(tokenized["train"].remove_columns("metadata"), batch_size=4,
-                                  shuffle=True, num_workers=args.num_workers, pin_memory=True, collate_fn=collator)
-    valid_dataloader = DataLoader(tokenized["val"].remove_columns("metadata"), batch_size=args.val_batch_size,
-                                                collate_fn=collator, num_workers=args.num_workers, shuffle=False)
     if args.mode == "train":
+        train_dataloader = DataLoader(tokenized["train"].remove_columns("metadata"), batch_size=4,
+                                  shuffle=True, num_workers=args.num_workers, pin_memory=True, collate_fn=collator)
+        valid_dataloader = DataLoader(tokenized["val"].remove_columns("metadata"), batch_size=args.val_batch_size,
+                                                    collate_fn=collator, num_workers=args.num_workers, shuffle=False)
         train(args=args,
               tokenizer=tokenizer,
               model=model,
@@ -239,6 +240,8 @@ def main():
               val_metadata=tokenized["val"]["metadata"])
 
     elif args.mode == "val":
+        valid_dataloader = DataLoader(tokenized["val"].remove_columns("metadata"), batch_size=args.val_batch_size,
+                                                    collate_fn=collator, num_workers=args.num_workers, shuffle=False)
         model, valid_dataloader = accelerator.prepare(model, valid_dataloader)
         model.eval()
         evaluate(args=args,
