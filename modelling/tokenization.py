@@ -37,10 +37,13 @@ def tokenize_dataset(examples,
                     use_msr_ocr: bool = False,
                     dataset: str = "docvqa",
                     doc_stride: int = 128,
+                    use_generation: bool = False,
                     ignore_unmatched_answer_span_during_train: bool = True): ## doc stride for sliding window, if 0, means no sliding window.
 
     features = {"input_ids": [], "image":[], "bbox":[], "start_positions": [], "end_positions":[],  "metadata": []}
     current_split = examples["data_split"][0]
+    if use_generation and current_split == "train":
+        features["labels"] = []
     for idx, (question, image_path, words, layout) in enumerate(zip(examples["question"], examples["image"], examples["words"], examples["layout"])):
         current_metadata = {}
         file = os.path.join(img_dir[examples["data_split"][idx]], image_path)
@@ -58,7 +61,13 @@ def tokenize_dataset(examples,
         if not return_overflowing_tokens:
             offset_mapping = [offset_mapping]
 
-        answer_ids = [[0] for _ in range(len(original_answer))]
+        if use_generation:
+            dummy_boxes = [[[0,0,0,0]] for _ in range(len(original_answer))]
+            answer_ids = tokenizer.batch_encode_plus([[ans] for ans in original_answer], boxes = dummy_boxes,
+                                                     add_special_tokens=True, max_length=100, truncation="longest_first")["input_ids"]
+        else:
+            answer_ids = [[0] for _ in range(len(original_answer))]
+            
         if not (use_msr_ocr and dataset == "docvqa"):
             img = cv2.imread(file)
             height, width = img.shape[:2]
@@ -71,23 +80,29 @@ def tokenize_dataset(examples,
             if current_split == "train":
                 # for training, we treat instances with multiple answers as multiple instances
                 for answer, label_ids in zip(answer_list, answer_ids):
-                    if answer["start_word_position"] == -1:
-                        subword_start = 0 ## just use the CLS
-                        subword_end = 0
-                        num_question_tokens = 0
-                        if ignore_unmatched_answer_span_during_train:
-                            continue
-                    else:
-                        subword_start, subword_end, num_question_tokens = get_subword_start_end(answer["start_word_position"], answer["end_word_position"], subword_idx2word_idx, sequence_ids)
-                        if subword_start == -1:
+                    if not use_generation:
+                        if answer["start_word_position"] == -1:
                             subword_start = 0 ## just use the CLS
                             subword_end = 0
+                            num_question_tokens = 0
                             if ignore_unmatched_answer_span_during_train:
                                 continue
-                        if subword_end == -1:
-                            ## that means the end position is out of maximum boundary
-                            ## last is </s>, second last
-                            subword_end = 511 - 1
+                        else:
+                            subword_start, subword_end, num_question_tokens = get_subword_start_end(answer["start_word_position"], answer["end_word_position"], subword_idx2word_idx, sequence_ids)
+                            if subword_start == -1:
+                                subword_start = 0 ## just use the CLS
+                                subword_end = 0
+                                if ignore_unmatched_answer_span_during_train:
+                                    continue
+                            if subword_end == -1:
+                                ## that means the end position is out of maximum boundary
+                                ## last is </s>, second last
+                                subword_end = 511 - 1
+                    else:
+                        features["labels"].append(label_ids)
+                        subword_start = -1  ## useless as in generation
+                        subword_end = -1
+                        num_question_tokens = 0
 
                     features["image"].append(file)
                     features["input_ids"].append(input_ids)
@@ -135,4 +150,7 @@ def tokenize_dataset(examples,
                 features["metadata"].append(current_metadata)
                 if not add_metadata:
                     features.pop("metadata")
+                #if use_generation:
+                    # For validation and test we don't need labels
+                    #features["labels"].append(None)
     return features

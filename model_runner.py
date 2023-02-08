@@ -10,10 +10,11 @@ import numpy as np
 import argparse
 import logging
 from datasets import load_from_disk, DatasetDict, concatenate_datasets, Dataset
-from transformers import PreTrainedModel, AutoModelForQuestionAnswering, AutoTokenizer, AutoFeatureExtractor
+from transformers import PreTrainedModel, AutoModelForQuestionAnswering, AutoTokenizer, AutoFeatureExtractor, LayoutLMv3Model, LayoutLMv3Config, BartModel
 from modelling.utils import get_optimizers, create_and_fill_np_array, write_data, anls_metric_str, postprocess_qa_predictions, bbox_string
 from modelling.tokenization import tokenize_dataset
 from modelling.data_collator import DocVQACollator
+from modelling.layoutlmv3_gen import LayoutLMv3ForConditionalGeneration
 
 
 #ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
@@ -51,6 +52,8 @@ def parse_arguments():
     parser.add_argument('--fp16', default=True, action='store_true', help="Whether to use 16-bit 32-bit training")
     parser.add_argument('--debug_run', default=False, action='store_true', help="Run model with 100 samples. For debugging purposes.")
     parser.add_argument('--save_model', default=False, action='store_true', help="Save the model after training")
+
+    parser.add_argument('--use_generation', default=0, type=int, choices=[0, 1], help="Whether to use generation to perform experiments")
 
     parser.add_argument('--pretrained_model_name', default='microsoft/layoutlmv3-base', type=str, help="pretrained model name")
     parser.add_argument('--stride', default=0, type=int, help="document stride for sliding window, >0 means sliding window, overlapping window")
@@ -97,7 +100,7 @@ def train(args,
             accelerator.backward(loss)
             accelerator.clip_grad_norm_(model.parameters(), args.max_grad_norm)
 
-            if (iter+1) % (args.train_batch_size/4) == 0:
+            if (iter+1) % (args.train_batch_size/2) == 0:
                 #print(iter)
                 optimizer.step()
                 scheduler.step()
@@ -137,35 +140,47 @@ def evaluate(args, tokenizer: AutoTokenizer, valid_dataloader: DataLoader, model
              valid_dataset_before_tokenized: Dataset, metadata,
              res_file=None, err_file=None):
     model.eval()
-    
-    all_start_logits = []
-    all_end_logits = []
-    with torch.no_grad(), torch.cuda.amp.autocast(enabled=bool(args.fp16)):
-        for index, batch in tqdm(enumerate(valid_dataloader), desc="--validation", total=len(valid_dataloader)):
-            batch.start_positions = None
-            batch.end_positions = None
-            outputs = model(**batch)
-            start_logits = outputs.start_logits
-            end_logits = outputs.end_logits
-            start_logits = accelerator.pad_across_processes(start_logits, dim=1, pad_index=-100)
-            end_logits = accelerator.pad_across_processes(end_logits, dim=1, pad_index=-100)
-            all_start_logits.append(accelerator.gather_for_metrics(start_logits).cpu().numpy())
-            all_end_logits.append(accelerator.gather_for_metrics(end_logits).cpu().numpy())
+    if args.use_generation:
+        all_pred_texts = []
+        with torch.no_grad(), torch.cuda.amp.autocast(enabled=bool(args.fp16)):
+            for index, batch in tqdm(enumerate(valid_dataloader), desc="--validation", total=len(valid_dataloader)):
+                assert "decoder_input_ids" not in batch
+                assert "labels" not in batch
+                generated_ids = model(**batch, is_train=False, return_dict=True, max_length=100, num_beams=1)
+                generated_ids = accelerator.pad_across_processes(generated_ids, dim=1, pad_index=tokenizer.pad_token_id, pad_first=False)  ## 1 is pad token id
+                generated_ids = accelerator.gather_for_metrics(generated_ids)
+                preds = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=True).strip() for g in generated_ids]
+                all_pred_texts.extend(preds)
+        prediction_list = all_pred_texts
+    else:
+        all_start_logits = []
+        all_end_logits = []
+        with torch.no_grad(), torch.cuda.amp.autocast(enabled=bool(args.fp16)):
+            for index, batch in tqdm(enumerate(valid_dataloader), desc="--validation", total=len(valid_dataloader)):
+                batch.start_positions = None
+                batch.end_positions = None
+                outputs = model(**batch)
+                start_logits = outputs.start_logits
+                end_logits = outputs.end_logits
+                start_logits = accelerator.pad_across_processes(start_logits, dim=1, pad_index=-100)
+                end_logits = accelerator.pad_across_processes(end_logits, dim=1, pad_index=-100)
+                all_start_logits.append(accelerator.gather_for_metrics(start_logits).cpu().numpy())
+                all_end_logits.append(accelerator.gather_for_metrics(end_logits).cpu().numpy())
 
-    max_len = max([x.shape[1] for x in all_start_logits])  # Get the max_length of the tensor
-    eval_dataset = valid_dataloader.dataset
-    # concatenate the numpy array
-    start_logits_concat = create_and_fill_np_array(all_start_logits, eval_dataset, max_len)
-    end_logits_concat = create_and_fill_np_array(all_end_logits, eval_dataset, max_len)
-    # delete the list of numpy arrays
-    del all_start_logits
-    del all_end_logits
+        max_len = max([x.shape[1] for x in all_start_logits])  # Get the max_length of the tensor
+        eval_dataset = valid_dataloader.dataset
+        # concatenate the numpy array
+        start_logits_concat = create_and_fill_np_array(all_start_logits, eval_dataset, max_len)
+        end_logits_concat = create_and_fill_np_array(all_end_logits, eval_dataset, max_len)
+        # delete the list of numpy arrays
+        del all_start_logits
+        del all_end_logits
 
-    outputs_numpy = (start_logits_concat, end_logits_concat)
-    prediction_dict, prediction_list = postprocess_qa_predictions(dataset_before_tokenized = valid_dataset_before_tokenized,
-                                                                  metadata=metadata, predictions=outputs_numpy,
-                                                                  n_best_size=args.extraction_nbest, max_answer_length=args.max_answer_length)
-    all_pred_texts = [prediction['answer'] for prediction in prediction_list]
+        outputs_numpy = (start_logits_concat, end_logits_concat)
+        prediction_dict, prediction_list = postprocess_qa_predictions(dataset_before_tokenized = valid_dataset_before_tokenized,
+                                                                    metadata=metadata, predictions=outputs_numpy,
+                                                                    n_best_size=args.extraction_nbest, max_answer_length=args.max_answer_length)
+        all_pred_texts = [prediction['answer'] for prediction in prediction_list]
         
     truth = [data["original_answer"] for data in valid_dataset_before_tokenized]
     accelerator.print(f"prediction: {all_pred_texts[:10]}")
@@ -185,8 +200,18 @@ def main():
     pretrained_model_name = args.pretrained_model_name
     tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name, use_fast=True)
     feature_extractor = AutoFeatureExtractor.from_pretrained(pretrained_model_name, apply_ocr=False)
-
-    model = AutoModelForQuestionAnswering.from_pretrained(pretrained_model_name)
+    if args.use_generation:
+        model = LayoutLMv3ForConditionalGeneration(
+            LayoutLMv3Config.from_pretrained(pretrained_model_name, return_dict=True))
+        old = BartModel.from_pretrained("facebook/bart-base")
+        # State loading and config
+        model.layoutlmv3.decoder.load_state_dict(old.decoder.state_dict())
+        model.layoutlmv3.encoder.load_state_dict(LayoutLMv3Model.from_pretrained(pretrained_model_name).state_dict())
+        model.config.decoder_start_token_id = model.config.eos_token_id
+        model.config.is_encoder_decoder = True
+        model.config.use_cache = True
+    else:
+        model = AutoModelForQuestionAnswering.from_pretrained(pretrained_model_name)
     if args.load_state != None:
             checkpoint = torch.load(f"model_files/{args.load_state}/state_dict.pth", map_location="cpu")
             model.load_state_dict(checkpoint, strict=True)
@@ -211,23 +236,37 @@ def main():
         "train": f"data/{dataset_name}/train", 
         "val": f"data/{dataset_name}/val", 
         "test": f"data/{dataset_name}/test"}
-
+    
     tokenized = dataset.map(tokenize_dataset,
                             fn_kwargs={"tokenizer": tokenizer,
                                        "img_dir": image_dir,
                                        "use_msr_ocr": use_msr, # Maybe pass as parameter in the future
                                        "doc_stride": args.stride,
                                        "dataset": dataset_name, 
+                                       "use_generation": args.use_generation,
                                        "ignore_unmatched_answer_span_during_train": bool(args.ignore_unmatched_span)},
-                            batched=True, num_proc=8,
-                            load_from_cache_file=True,
+                            batched=True, num_proc=4,
+                            load_from_cache_file=False,
                             remove_columns=dataset["val"].column_names
                             )
+    print(tokenized["train"].column_names)
     accelerator.print(tokenized)
+    print(tokenized["train"].column_names)
+    print("GENERATION", args.use_generation)
+    #return
 
     if args.mode == "train":
-        train_dataloader = DataLoader(tokenized["train"].remove_columns("metadata"), batch_size=4,
+        valid_dataloader = DataLoader(tokenized["val"].remove_columns("metadata"), batch_size=args.val_batch_size,
+                                                    collate_fn=collator, num_workers=args.num_workers, shuffle=False)
+        #for i in valid_dataloader:
+        #    print(i)
+        #    return
+        
+        train_dataloader = DataLoader(tokenized["train"].remove_columns("metadata"), batch_size=2,
                                   shuffle=True, num_workers=args.num_workers, pin_memory=True, collate_fn=collator)
+        #for i in train_dataloader:
+        #    print(i)
+        #    return
         valid_dataloader = DataLoader(tokenized["val"].remove_columns("metadata"), batch_size=args.val_batch_size,
                                                     collate_fn=collator, num_workers=args.num_workers, shuffle=False)
         train(args=args,
@@ -242,6 +281,10 @@ def main():
     elif args.mode == "val":
         valid_dataloader = DataLoader(tokenized["val"].remove_columns("metadata"), batch_size=args.val_batch_size,
                                                     collate_fn=collator, num_workers=args.num_workers, shuffle=False)
+        """for i in valid_dataloader:
+            print(i)
+            break
+        return"""
         model, valid_dataloader = accelerator.prepare(model, valid_dataloader)
         model.eval()
         evaluate(args=args,

@@ -14,7 +14,6 @@ class DocVQACollator:
     model: Optional[nn.Module] = None
 
     def __call__(self, batch: List):
-
         labels = [feature["labels"] for feature in batch] if "labels" in batch[0].keys() else None
         if labels is not None:
             max_label_length = max(len(l) for l in labels)
@@ -37,7 +36,7 @@ class DocVQACollator:
             return_tensors="pt",
             return_attention_mask=True
         )
-        # prepare decoder_input_ids
+        # FOR GENERATION: prepare decoder_input_ids
         if self.model is not None and hasattr(self.model, "prepare_decoder_input_ids_from_labels"):
             batch.pop("start_positions")
             batch.pop("end_positions")

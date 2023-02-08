@@ -1,0 +1,69 @@
+# Finetune DocVQA
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/docvqa_cached_extractive_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
+    --model_folder docvqa_msr_ocr_75epoch_v1_ignore_unmatched_span_True_batchsize_16_lr_2eneg5 \
+    --num_epochs 75 \
+    --ignore_unmatched_span 1 \
+    --train_batch_size 16 \
+    --learning_rate 2e-5 \
+    --save_model
+
+# Continue finetuning DocVQA
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/docvqa_cached_extractive_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
+    --model_folder docvqa_msr_ocr_100epoch_v1_ignore_unmatched_span_True_batchsize_16_lr_2eneg5 \
+    --load_state docvqa_msr_ocr_50epoch_v1_ignore_unmatched_span_True_batchsize_16_lr_2eneg5 \
+    --num_epochs 50 \
+    --ignore_unmatched_span 1 \
+    --train_batch_size 8 \
+    --learning_rate 1e-5 \
+    --save_model \
+    --warmup_step 500
+
+# Finetune InfographicVQA
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/infographicvqa_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
+    --num_epochs 50 \
+    --ignore_unmatched_span 1 \
+    --train_batch_size 4 \
+    --learning_rate 5e-6 \
+    --save_model \
+    --model_folder infographicvqa_msr_ocr_50epoch_v1_ignore_unmatched_span_True_batchsize_4
+
+# Validate InfographicVQA on finetuned DocVQA model
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/infographicvqa_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
+    --load_state docvqa_msr_ocr_finetune_base_50epoch_smaller_lr \
+    --mode val \
+    --val_batch_size 4
+
+# InfographicVQA ratio experiment on finetuned DocVQA model
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/infographicvqa_document_ratio_experiment_msr_ocr_True_extraction_v1_enumeration \
+    --load_state docvqa_msr_ocr_finetune_base_50epoch_smaller_lr \
+    --mode val \
+    --val_batch_size 4
+
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/infographicvqa_only_non_extractive_experiment_msr_ocr_True_extraction_v1_enumeration \
+    --load_state docvqa_msr_ocr_finetune_base_50epoch_smaller_lr \
+    --mode val \
+    --val_batch_size 4
+
+# Test: training generative approach
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/infographicvqa_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
+    --save_model \
+    --model_folder test_generative_15epoch_batchsize_4 \
+    --train_batch_size 4 \
+    --num_epoch 15 \
+    --learning_rate 5e-6 \
+    --mode train \
+    --use_generation 1

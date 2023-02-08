@@ -1,8 +1,6 @@
-cosine/negative exponential scheduler might be more useful
+For generation, fix error in tokenizer
 
-Check/improve batch size configuration
-
-When using load_state, do evaluation before training so we don't overwrite the previous best model if the new is worse
+How does the decoder implement cross-attention (what information from the encoder uses?)
 
 MORE PARAMETERS FOR RUNNER:
     ignore_unmatched_span change to bool
@@ -14,23 +12,12 @@ MORE PARAMETERS FOR RUNNER:
 -- NOT PRIORITY:
 Document all the functions
 
-Get loss history (plot graph)
+When using load_state, do evaluation before training so we don't overwrite the previous best model if the new is worse
 
-Solve the fast tokenizer call warning
 
-Cache dataset files and images all at once (cache dataset after tokenization/data collation)
-
-Randomly show some images along with questions/gt answer/predicted answer
-
-- Como utiliza el modelo los tokens del contexto (texto del documento/infographic) y la pregunta
-    El tokenizer recibe tanto pregunta como contexto y los une con un caracter separador <sep>
-
-- Mirar que utiliza la loss
-    Media de la CrossEntropyLoss entre los start/end logits y las posiciones reales.
-
-** Entrenar ultimas capas solo? 
+** Entrenar ultimas capas solo? No
     Segun el paper original, para docVQA hace un finetunning a partir del modelo base:
-        Batch size 128 (jk.. unless..)
+        Batch size 128
         LR 3e-5
         Warmup ratio 0.48 - https://github.com/huggingface/transformers/issues/6673
 
@@ -39,7 +26,6 @@ Randomly show some images along with questions/gt answer/predicted answer
     v1, msr ocr, lr 3e-5, 100 epoch, batch size 128, anls 0.6811020509601284
     v1, msr ocr, lr 2e-5, 75 epoch, batch size 16, anls 0.70639365332834
     
-
 - Ver porcentage de extractive (concretamente de respuesta explicita en el texto)
     - Train set: Extraer correctamente 16275 respuestas (Fallan 7671) -> 0.9567 ANLS
         De 23946 se extraen 16275 -> 67.97%
@@ -58,61 +44,3 @@ Randomly show some images along with questions/gt answer/predicted answer
             v1, msr ocr, lr 5e-6, 15 epoch, anls 0.31380391974946414
             v1, msr ocr, lr 5e-6, 15 epoch sin ignorar respuestas no encontradas, anls 0.3084587113074302
             v1, msr ocr, lr 3e-5, 28 epoch, anls 0.30597553278984235
-
-# Finetune DocVQA
-accelerate launch \
-    --config_file launch_config.yaml model_runner.py \
-    --dataset_file cached_datasets/docvqa_cached_extractive_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
-    --model_folder docvqa_msr_ocr_75epoch_v1_ignore_unmatched_span_True_batchsize_16_lr_2eneg5 \
-    --num_epochs 75 \
-    --ignore_unmatched_span 1 \
-    --train_batch_size 16 \
-    --learning_rate 2e-5 \
-    --save_model
-
-# Continue finetuning DocVQA
-accelerate launch \
-    --config_file launch_config.yaml model_runner.py \
-    --dataset_file cached_datasets/docvqa_cached_extractive_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
-    --model_folder docvqa_msr_ocr_100epoch_v1_ignore_unmatched_span_True_batchsize_16_lr_2eneg5 \
-    --load_state docvqa_msr_ocr_50epoch_v1_ignore_unmatched_span_True_batchsize_16_lr_2eneg5 \
-    --num_epochs 50 \
-    --ignore_unmatched_span 1 \
-    --train_batch_size 8 \
-    --learning_rate 1e-5 \
-    --save_model \
-    --warmup_step 500
-
-# Finetune InfographicVQA
-accelerate launch \
-    --config_file launch_config.yaml model_runner.py \
-    --dataset_file cached_datasets/infographicvqa_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
-    --num_epochs 50 \
-    --ignore_unmatched_span 1 \
-    --train_batch_size 4 \
-    --learning_rate 5e-6 \
-    --save_model \
-    --model_folder infographicvqa_msr_ocr_50epoch_v1_ignore_unmatched_span_True_batchsize_4
-
-# Validate InfographicVQA on finetuned DocVQA model
-accelerate launch \
-    --config_file launch_config.yaml model_runner.py \
-    --dataset_file cached_datasets/infographicvqa_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
-    --load_state docvqa_msr_ocr_finetune_base_50epoch_smaller_lr \
-    --mode val \
-    --val_batch_size 4
-
-# InfographicVQA ratio experiment on finetuned DocVQA model
-accelerate launch \
-    --config_file launch_config.yaml model_runner.py \
-    --dataset_file cached_datasets/infographicvqa_document_ratio_experiment_msr_ocr_True_extraction_v1_enumeration \
-    --load_state docvqa_msr_ocr_finetune_base_50epoch_smaller_lr \
-    --mode val \
-    --val_batch_size 4
-
-accelerate launch \
-    --config_file launch_config.yaml model_runner.py \
-    --dataset_file cached_datasets/infographicvqa_only_non_extractive_experiment_msr_ocr_True_extraction_v1_enumeration \
-    --load_state docvqa_msr_ocr_finetune_base_50epoch_smaller_lr \
-    --mode val \
-    --val_batch_size 4
