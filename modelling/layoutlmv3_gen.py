@@ -28,6 +28,7 @@ class LayoutLMv3TransformerModel(LayoutLMv3PreTrainedModel):
         self.embeddings = self.encoder.embeddings
         # roberta_config = RobertaConfig.from_pretrained('roberta-base')
         # self.decoder = RobertaDecoder(roberta_config, self.encoder.embeddings)
+        # MIRAR https://discuss.huggingface.co/t/using-the-decoder-half-of-bart-for-causal-generation/4369/3
         bart_config = BartConfig.from_pretrained('facebook/bart-base')
         self.decoder = BartDecoder(bart_config, self.encoder.embeddings.word_embeddings)
         # self.init_weights()

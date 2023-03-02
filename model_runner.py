@@ -15,10 +15,8 @@ from modelling.utils import get_optimizers, create_and_fill_np_array, write_data
 from modelling.tokenization import tokenize_dataset
 from modelling.data_collator import DocVQACollator
 from modelling.layoutlmv3_gen import LayoutLMv3ForConditionalGeneration
+from modelling.multiple_embedder import LayoutLMv3ModelMultipleEmbeddings, LayoutLMv3ForQuestionAnsweringMultipleEmbeddings
 
-
-#ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
-# not adding find unused because all are used 
 accelerator = Accelerator(kwargs_handlers=[])
 
 tqdm = partial(tqdm, bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}', disable=not accelerator.is_local_main_process)
@@ -52,8 +50,10 @@ def parse_arguments():
     parser.add_argument('--fp16', default=True, action='store_true', help="Whether to use 16-bit 32-bit training")
     parser.add_argument('--debug_run', default=False, action='store_true', help="Run model with 100 samples. For debugging purposes.")
     parser.add_argument('--save_model', default=False, action='store_true', help="Save the model after training")
+    parser.add_argument("--resize", default=1, type=int, choices=[0, 1], help="Resize images to (224, 224). When 0, just add black stripes.")
 
     parser.add_argument('--use_generation', default=0, type=int, choices=[0, 1], help="Whether to use generation to perform experiments")
+    parser.add_argument('--use_embeddings', default=0, type=int, choices=[0, 1], help="Use different embeddings depending on the image aspect ratio")
 
     parser.add_argument('--pretrained_model_name', default='microsoft/layoutlmv3-base', type=str, help="pretrained model name")
     parser.add_argument('--stride', default=0, type=int, help="document stride for sliding window, >0 means sliding window, overlapping window")
@@ -89,7 +89,6 @@ def train(args,
     for epoch in range(num_epochs):
         total_loss = 0
         model.train()
-        # https://medium.com/@davidlmorton/increasing-mini-batch-size-without-increasing-memory-6794e10db672
         for iter, batch in tqdm(enumerate(train_dataloader, 1), desc="--training batch", total=len(train_dataloader)):
             with torch.cuda.amp.autocast(enabled=bool(args.fp16)):
                 output = model(**batch)
@@ -101,7 +100,6 @@ def train(args,
             accelerator.clip_grad_norm_(model.parameters(), args.max_grad_norm)
 
             if (iter+1) % (args.train_batch_size/2) == 0:
-                #print(iter)
                 optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad()
@@ -196,6 +194,7 @@ def evaluate(args, tokenizer: AutoTokenizer, valid_dataloader: DataLoader, model
 def main():
     args = parse_arguments()
     set_seed(args.seed, device_specific=True)
+    true_train_batch_size = 2
 
     pretrained_model_name = args.pretrained_model_name
     tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name, use_fast=True)
@@ -210,13 +209,46 @@ def main():
         model.config.decoder_start_token_id = model.config.eos_token_id
         model.config.is_encoder_decoder = True
         model.config.use_cache = True
+    elif args.use_embeddings:
+        true_train_batch_size = 1
+        args.val_batch_size = 1
+        model = LayoutLMv3ForQuestionAnsweringMultipleEmbeddings(
+            LayoutLMv3Config.from_pretrained(pretrained_model_name, return_dict=True))
+        old = LayoutLMv3Model.from_pretrained(pretrained_model_name)
+        model.layoutlmv3.embeddings.load_state_dict(old.embeddings.state_dict())
+        model.layoutlmv3.pos_drop.load_state_dict(old.pos_drop.state_dict())
+        model.layoutlmv3.LayerNorm.load_state_dict(old.LayerNorm.state_dict())
+        model.layoutlmv3.dropout.load_state_dict(old.dropout.state_dict())
+        model.layoutlmv3.norm.load_state_dict(old.norm.state_dict())
+        model.layoutlmv3.encoder.load_state_dict(old.encoder.state_dict())
     else:
         model = AutoModelForQuestionAnswering.from_pretrained(pretrained_model_name)
-    if args.load_state != None:
-            checkpoint = torch.load(f"model_files/{args.load_state}/state_dict.pth", map_location="cpu")
-            model.load_state_dict(checkpoint, strict=True)
 
-    collator = DocVQACollator(tokenizer, feature_extractor, pretrained_model_name=pretrained_model_name, model=model)
+    if args.load_state != None:
+        checkpoint = torch.load(f"model_files/{args.load_state}/state_dict.pth", map_location="cpu")
+        # If we are loading the state of a model without multiple embeddings, use the weights and biases of the single embedding
+        if args.use_embeddings and "layoutlmv3.patch_embed.proj1.weight" not in checkpoint.keys():
+            checkpoint["layoutlmv3.patch_embed.proj1.weight"] = checkpoint["layoutlmv3.patch_embed.proj.weight"]
+            checkpoint["layoutlmv3.patch_embed.proj2.weight"] = checkpoint["layoutlmv3.patch_embed.proj.weight"]
+            checkpoint["layoutlmv3.patch_embed.proj3.weight"] = checkpoint["layoutlmv3.patch_embed.proj.weight"]
+            checkpoint["layoutlmv3.patch_embed.proj1.bias"] = checkpoint["layoutlmv3.patch_embed.proj.bias"]
+            checkpoint["layoutlmv3.patch_embed.proj2.bias"] = checkpoint["layoutlmv3.patch_embed.proj.bias"]
+            checkpoint["layoutlmv3.patch_embed.proj3.bias"] = checkpoint["layoutlmv3.patch_embed.proj.bias"]
+            checkpoint.pop("layoutlmv3.patch_embed.proj.weight")
+            checkpoint.pop("layoutlmv3.patch_embed.proj.bias")
+        if args.use_embeddings and "layoutlmv3.patch_embed.proj.weight" in checkpoint.keys():
+            checkpoint.pop("layoutlmv3.patch_embed.proj.weight")
+            checkpoint.pop("layoutlmv3.patch_embed.proj.bias")
+        model.load_state_dict(checkpoint, strict=True)
+
+    collator = DocVQACollator(
+        tokenizer,
+        feature_extractor,
+        pretrained_model_name=pretrained_model_name,
+        model=model,
+        resize=args.resize,
+        multiple_embeddings=args.use_embeddings
+        )
     dataset = load_from_disk(args.dataset_file)
 
     if args.debug_run:
@@ -245,30 +277,57 @@ def main():
                                        "dataset": dataset_name, 
                                        "use_generation": args.use_generation,
                                        "ignore_unmatched_answer_span_during_train": bool(args.ignore_unmatched_span)},
-                            batched=True, num_proc=4,
+                            batched=True, num_proc=args.num_workers,
                             load_from_cache_file=False,
                             remove_columns=dataset["val"].column_names
                             )
-    print(tokenized["train"].column_names)
+
+    # Experiment: Create new dataset with new docvqa documents of varying proportions.
+    # For each original answer, now there are three samples, each one with a different
+    # version of its original image (original, horizontally streched and vertically
+    # streched)
+    if dataset_name == "docvqa" and args.mode == "train" and args.use_embeddings:
+        for i in [1,2,3]:
+            new_column = [i] * len(tokenized["train"])
+            if i == 1:
+                new_train = tokenized["train"].add_column("image_mod", new_column)
+            else:
+                new_train = concatenate_datasets([new_train, tokenized["train"].add_column("image_mod", new_column)])
+        
+        for i in [1,2,3]:
+            new_column = [i] * len(tokenized["val"])
+            if i == 1:
+                new_val = tokenized["val"].add_column("image_mod", new_column)
+            else:
+                new_val = concatenate_datasets([new_val, tokenized["val"].add_column("image_mod", new_column)])
+        
+        new_test = concatenate_datasets([tokenized["test"], concatenate_datasets([tokenized["test"], tokenized["test"]])])
+
+        tokenized = DatasetDict({
+            "train": new_train, 
+            "val": new_val, 
+            "test": new_test})
     accelerator.print(tokenized)
-    print(tokenized["train"].column_names)
-    print("GENERATION", args.use_generation)
-    #return
 
     if args.mode == "train":
         valid_dataloader = DataLoader(tokenized["val"].remove_columns("metadata"), batch_size=args.val_batch_size,
                                                     collate_fn=collator, num_workers=args.num_workers, shuffle=False)
-        #for i in valid_dataloader:
-        #    print(i)
-        #    return
         
-        train_dataloader = DataLoader(tokenized["train"].remove_columns("metadata"), batch_size=2,
+        train_dataloader = DataLoader(tokenized["train"].remove_columns("metadata"), batch_size=true_train_batch_size,
                                   shuffle=True, num_workers=args.num_workers, pin_memory=True, collate_fn=collator)
-        #for i in train_dataloader:
-        #    print(i)
-        #    return
-        valid_dataloader = DataLoader(tokenized["val"].remove_columns("metadata"), batch_size=args.val_batch_size,
-                                                    collate_fn=collator, num_workers=args.num_workers, shuffle=False)
+
+        def freeze_grad_parameters(model):
+            for param in model.parameters():
+                param.requires_grad = False
+            model.layoutlmv3.patch_embed.proj1.weight.requires_grad = True
+            model.layoutlmv3.patch_embed.proj1.bias.requires_grad = True
+            model.layoutlmv3.patch_embed.proj2.weight.requires_grad = True
+            model.layoutlmv3.patch_embed.proj2.bias.requires_grad = True
+            model.layoutlmv3.patch_embed.proj3.weight.requires_grad = True
+            model.layoutlmv3.patch_embed.proj3.bias.requires_grad = True
+
+        freeze_grad_parameters(model)
+        
         train(args=args,
               tokenizer=tokenizer,
               model=model,
@@ -281,10 +340,7 @@ def main():
     elif args.mode == "val":
         valid_dataloader = DataLoader(tokenized["val"].remove_columns("metadata"), batch_size=args.val_batch_size,
                                                     collate_fn=collator, num_workers=args.num_workers, shuffle=False)
-        """for i in valid_dataloader:
-            print(i)
-            break
-        return"""
+
         model, valid_dataloader = accelerator.prepare(model, valid_dataloader)
         model.eval()
         evaluate(args=args,

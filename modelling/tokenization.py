@@ -150,7 +150,4 @@ def tokenize_dataset(examples,
                 features["metadata"].append(current_metadata)
                 if not add_metadata:
                     features.pop("metadata")
-                #if use_generation:
-                    # For validation and test we don't need labels
-                    #features["labels"].append(None)
     return features

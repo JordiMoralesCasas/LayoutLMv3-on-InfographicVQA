@@ -67,3 +67,71 @@ accelerate launch \
     --learning_rate 5e-6 \
     --mode train \
     --use_generation 1
+
+## Test: Multiple embeddings
+# Train on docvqa, from layoutlmv3-base
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/docvqa_cached_extractive_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
+    --model_folder docvqa_embeddings_v2_msr_ocr_20epoch_batchsize_4_lr_5eneg6 \
+    --num_epochs 20 \
+    --ignore_unmatched_span 1 \
+    --train_batch_size 4 \
+    --learning_rate 5e-6 \
+    --mode train \
+    --use_embeddings 1 \
+    --save_model \
+    --resize 0
+# Finetune
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/docvqa_cached_extractive_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
+    --load_state docvqa_msr_ocr_finetune_base_50epoch_smaller_lr \
+    --model_folder docvqa_embeddings_finetune_v1_msr_ocr_20epoch_batchsize_4_lr_5eneg6 \
+    --num_epochs 20 \
+    --ignore_unmatched_span 1 \
+    --train_batch_size 4 \
+    --learning_rate 5e-6 \
+    --mode train \
+    --use_embeddings 1 \
+    --save_model \
+    --resize 0
+
+#### Test on infographicvqa
+load_states:
+    docvqa_msr_ocr_finetune_base_50epoch_smaller_lr
+
+    docvqa_embeddings_v1_msr_ocr_20epoch_batchsize_16_lr_2eneg5
+    docvqa_embeddings_v1_msr_ocr_20epoch_batchsize_4_lr_5eneg6 ** rehacer
+    docvqa_embeddings_finetune_v1_msr_ocr_20epoch_batchsize_4_lr_5eneg6
+
+    docvqa_embeddings_v2_msr_ocr_20epoch_batchsize_16_lr_2eneg5
+    docvqa_embeddings_v2_msr_ocr_20epoch_batchsize_4_lr_5eneg6
+    docvqa_embeddings_finetune_v2_msr_ocr_20epoch_batchsize_4_lr_5eneg6
+dataset files:
+    cached_datasets/infographicvqa_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration
+
+    cached_datasets/infographicvqa_very_vertical_msr_ocr_True_extraction_v1_enumeration
+    cached_datasets/infographicvqa_vertical_msr_ocr_True_extraction_v1_enumeration
+    cached_datasets/infographicvqa_document_msr_ocr_True_extraction_v1_enumeration
+    cached_datasets/infographicvqa_horizontal_msr_ocr_True_extraction_v1_enumeration
+    cached_datasets/infographicvqa_very_horizontal_msr_ocr_True_extraction_v1_enumeration
+    
+
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/infographicvqa_very_horizontal_msr_ocr_True_extraction_v1_enumeration \
+    --load_state docvqa_embeddings_v2_msr_ocr_20epoch_batchsize_4_lr_5eneg6 \
+    --mode val \
+    --use_embeddings 1 \
+    --resize 1
+
+accelerate launch \
+    --config_file launch_config.yaml model_runner.py \
+    --dataset_file cached_datasets/infographicvqa_very_horizontal_msr_ocr_True_extraction_v1_enumeration \
+    --load_state docvqa_msr_ocr_finetune_base_50epoch_smaller_lr \
+    --mode val \
+    --use_embeddings 0 \
+    --resize 1
+
+

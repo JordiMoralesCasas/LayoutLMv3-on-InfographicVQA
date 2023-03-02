@@ -1,46 +1,23 @@
-For generation, fix error in tokenizer
+For generation, fix error in tokenizer (fixed?)
 
 How does the decoder implement cross-attention (what information from the encoder uses?)
 
+Better load_state section
+
+change boolean console parameters (from 1/0 to bool)
+
+multiple embedding can use batches bigger than 1 -> change real_batch_size parameters
+
+Train the baseline model with the augmented docvqa datset 
+
 MORE PARAMETERS FOR RUNNER:
-    ignore_unmatched_span change to bool
     unify model_folder and checkpoint (maybe checkpoint being a boolean for training frm the model_folder model), use the pretained_model arg
     results file name
     Choose scheduler/optimizer (not prioritary rn)
     TODO in modelling.get_optimizers
 
--- NOT PRIORITY:
 Document all the functions
 
 When using load_state, do evaluation before training so we don't overwrite the previous best model if the new is worse
 
 
-** Entrenar ultimas capas solo? No
-    Segun el paper original, para docVQA hace un finetunning a partir del modelo base:
-        Batch size 128
-        LR 3e-5
-        Warmup ratio 0.48 - https://github.com/huggingface/transformers/issues/6673
-
-- Aproximar resultados de DocVQA a los dados por el paper original
-    v1, msr ocr, lr 5e-6, 50 epoch, batch size 4, anls 0.715184467578495
-    v1, msr ocr, lr 3e-5, 100 epoch, batch size 128, anls 0.6811020509601284
-    v1, msr ocr, lr 2e-5, 75 epoch, batch size 16, anls 0.70639365332834
-    
-- Ver porcentage de extractive (concretamente de respuesta explicita en el texto)
-    - Train set: Extraer correctamente 16275 respuestas (Fallan 7671) -> 0.9567 ANLS
-        De 23946 se extraen 16275 -> 67.97%
-    - Val set: Extraer correctamente 2026 respuestas (Fallan 775) -> 0.9613 ANLS
-        De 2801 se extraen 2026 -> 72.33%
-
-- Dar una BASELINE para infographicVQA
-    Baseline:
-        0.23146850185984247
-
-    Finetune from LayoutLMv3 base
-        MSR OCR:
-        Default OCR:
-            v1, msr ocr, lr 5e-6, 50 epoch, batch size 4, anls 0.3267328187534782
-            v1, msr ocr, lr 3e-5, 50 epoch, batch size 48, anls 0.29003773461478916
-            v1, msr ocr, lr 5e-6, 15 epoch, anls 0.31380391974946414
-            v1, msr ocr, lr 5e-6, 15 epoch sin ignorar respuestas no encontradas, anls 0.3084587113074302
-            v1, msr ocr, lr 3e-5, 28 epoch, anls 0.30597553278984235
