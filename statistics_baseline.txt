@@ -23,6 +23,7 @@
 
     Finetune from LayoutLMv3 base
         MSR OCR:
+        
         Default OCR:
             v1, msr ocr, lr 5e-6, 50 epoch, batch size 4, anls 0.3267328187534782
             v1, msr ocr, lr 3e-5, 50 epoch, batch size 48, anls 0.29003773461478916

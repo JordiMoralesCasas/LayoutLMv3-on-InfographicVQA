@@ -15,7 +15,7 @@ from modelling.utils import get_optimizers, create_and_fill_np_array, write_data
 from modelling.tokenization import tokenize_dataset
 from modelling.data_collator import DocVQACollator
 from modelling.layoutlmv3_gen import LayoutLMv3ForConditionalGeneration
-from modelling.multiple_embedder import LayoutLMv3ModelMultipleEmbeddings, LayoutLMv3ForQuestionAnsweringMultipleEmbeddings
+from modelling.adaptive_embedder import LayoutLMv3ModelNewEmbeddings, LayoutLMv3ForQuestionAnsweringNewEmbeddings
 
 accelerator = Accelerator(kwargs_handlers=[])
 
@@ -53,7 +53,7 @@ def parse_arguments():
     parser.add_argument("--resize", default=1, type=int, choices=[0, 1], help="Resize images to (224, 224). When 0, just add black stripes.")
 
     parser.add_argument('--use_generation', default=0, type=int, choices=[0, 1], help="Whether to use generation to perform experiments")
-    parser.add_argument('--use_embeddings', default=0, type=int, choices=[0, 1], help="Use different embeddings depending on the image aspect ratio")
+    parser.add_argument('--use_embeddings', default=False, action='store_true', help="Use different embeddings depending on the image aspect ratio")
 
     parser.add_argument('--pretrained_model_name', default='microsoft/layoutlmv3-base', type=str, help="pretrained model name")
     parser.add_argument('--stride', default=0, type=int, help="document stride for sliding window, >0 means sliding window, overlapping window")
@@ -194,11 +194,9 @@ def evaluate(args, tokenizer: AutoTokenizer, valid_dataloader: DataLoader, model
 def main():
     args = parse_arguments()
     set_seed(args.seed, device_specific=True)
-    true_train_batch_size = 2
 
     pretrained_model_name = args.pretrained_model_name
     tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name, use_fast=True)
-    feature_extractor = AutoFeatureExtractor.from_pretrained(pretrained_model_name, apply_ocr=False)
     if args.use_generation:
         model = LayoutLMv3ForConditionalGeneration(
             LayoutLMv3Config.from_pretrained(pretrained_model_name, return_dict=True))
@@ -210,10 +208,14 @@ def main():
         model.config.is_encoder_decoder = True
         model.config.use_cache = True
     elif args.use_embeddings:
-        true_train_batch_size = 1
+        args.resize = 0
         args.val_batch_size = 1
-        model = LayoutLMv3ForQuestionAnsweringMultipleEmbeddings(
-            LayoutLMv3Config.from_pretrained(pretrained_model_name, return_dict=True))
+        true_train_batch_size = 1
+        model_config = LayoutLMv3Config.from_pretrained(pretrained_model_name, return_dict=True)
+        model_config.max_horizontal_patches = 30
+        model_config.max_vertical_patches = 90
+
+        model = LayoutLMv3ForQuestionAnsweringNewEmbeddings(model_config)
         old = LayoutLMv3Model.from_pretrained(pretrained_model_name)
         model.layoutlmv3.embeddings.load_state_dict(old.embeddings.state_dict())
         model.layoutlmv3.pos_drop.load_state_dict(old.pos_drop.state_dict())
@@ -226,28 +228,16 @@ def main():
 
     if args.load_state != None:
         checkpoint = torch.load(f"model_files/{args.load_state}/state_dict.pth", map_location="cpu")
-        # If we are loading the state of a model without multiple embeddings, use the weights and biases of the single embedding
-        if args.use_embeddings and "layoutlmv3.patch_embed.proj1.weight" not in checkpoint.keys():
-            checkpoint["layoutlmv3.patch_embed.proj1.weight"] = checkpoint["layoutlmv3.patch_embed.proj.weight"]
-            checkpoint["layoutlmv3.patch_embed.proj2.weight"] = checkpoint["layoutlmv3.patch_embed.proj.weight"]
-            checkpoint["layoutlmv3.patch_embed.proj3.weight"] = checkpoint["layoutlmv3.patch_embed.proj.weight"]
-            checkpoint["layoutlmv3.patch_embed.proj1.bias"] = checkpoint["layoutlmv3.patch_embed.proj.bias"]
-            checkpoint["layoutlmv3.patch_embed.proj2.bias"] = checkpoint["layoutlmv3.patch_embed.proj.bias"]
-            checkpoint["layoutlmv3.patch_embed.proj3.bias"] = checkpoint["layoutlmv3.patch_embed.proj.bias"]
-            checkpoint.pop("layoutlmv3.patch_embed.proj.weight")
-            checkpoint.pop("layoutlmv3.patch_embed.proj.bias")
-        if args.use_embeddings and "layoutlmv3.patch_embed.proj.weight" in checkpoint.keys():
-            checkpoint.pop("layoutlmv3.patch_embed.proj.weight")
-            checkpoint.pop("layoutlmv3.patch_embed.proj.bias")
-        model.load_state_dict(checkpoint, strict=True)
-
+        model.load_state_dict(checkpoint, strict=False)
+        
+    # Load feature extractor and data collator
+    feature_extractor = AutoFeatureExtractor.from_pretrained(pretrained_model_name, apply_ocr=False, do_resize=args.resize)
     collator = DocVQACollator(
         tokenizer,
         feature_extractor,
         pretrained_model_name=pretrained_model_name,
         model=model,
-        resize=args.resize,
-        multiple_embeddings=args.use_embeddings
+        resize=args.resize
         )
     dataset = load_from_disk(args.dataset_file)
 
@@ -286,7 +276,7 @@ def main():
     # For each original answer, now there are three samples, each one with a different
     # version of its original image (original, horizontally streched and vertically
     # streched)
-    if dataset_name == "docvqa" and args.mode == "train" and args.use_embeddings:
+    """if dataset_name == "docvqa" and args.mode == "train" and args.use_embeddings:
         for i in [1,2,3]:
             new_column = [i] * len(tokenized["train"])
             if i == 1:
@@ -306,7 +296,7 @@ def main():
         tokenized = DatasetDict({
             "train": new_train, 
             "val": new_val, 
-            "test": new_test})
+            "test": new_test})"""
     accelerator.print(tokenized)
 
     if args.mode == "train":
@@ -316,17 +306,11 @@ def main():
         train_dataloader = DataLoader(tokenized["train"].remove_columns("metadata"), batch_size=true_train_batch_size,
                                   shuffle=True, num_workers=args.num_workers, pin_memory=True, collate_fn=collator)
 
-        def freeze_grad_parameters(model):
+        if False:
             for param in model.parameters():
                 param.requires_grad = False
-            model.layoutlmv3.patch_embed.proj1.weight.requires_grad = True
-            model.layoutlmv3.patch_embed.proj1.bias.requires_grad = True
-            model.layoutlmv3.patch_embed.proj2.weight.requires_grad = True
-            model.layoutlmv3.patch_embed.proj2.bias.requires_grad = True
-            model.layoutlmv3.patch_embed.proj3.weight.requires_grad = True
-            model.layoutlmv3.patch_embed.proj3.bias.requires_grad = True
-
-        freeze_grad_parameters(model)
+            model.layoutlmv3.patch_embed.proj.weight.requires_grad = True
+            model.layoutlmv3.patch_embed.proj.bias.requires_grad = True
         
         train(args=args,
               tokenizer=tokenizer,

@@ -1,3 +1,5 @@
+
+
 For generation, fix error in tokenizer (fixed?)
 
 How does the decoder implement cross-attention (what information from the encoder uses?)
@@ -5,8 +7,6 @@ How does the decoder implement cross-attention (what information from the encode
 Better load_state section
 
 change boolean console parameters (from 1/0 to bool)
-
-multiple embedding can use batches bigger than 1 -> change real_batch_size parameters
 
 Train the baseline model with the augmented docvqa datset 
 
@@ -19,5 +19,33 @@ MORE PARAMETERS FOR RUNNER:
 Document all the functions
 
 When using load_state, do evaluation before training so we don't overwrite the previous best model if the new is worse
+
+
+-- New embedder
+Eliminar todo lo de multiple embedder antes de meterme con codigo
+
+Preprocess images:
+    - To avoid not having enough memory, resize images keeping the same aspect ratio but with the smaller side being 224 (size used in the baseline model)
+        smaller_side -> 224
+        bigger_side -> bigger_side*224//smaller_side
+    - Patches 16x16
+
+Modelo funciona si comento linea 436 de modelling_layoutlmv3.py xd
+
+ https://github.com/huggingface/transformers/blob/v4.26.1/src/transformers/models/layoutlmv3/modeling_layoutlmv3.py#L655
+
+- TODO
+	- Implementar 2D
+	- Alguna manera de simular diferentes posiciones para el positional embedding
+	- Empezar con un entrenamiento con feature map de 24x24 (?)
+		- Si va bien (con que tenga resultados similares a la baseline sirve), continuar aumentando el feature map
+		- Si no, probablemente se requiera pre entrenar el modelo en tareas de pretraining para aprender a usar los 2D embeddings
+	- sacar algun informe de los graficos que ya tengo:
+        - Los infographics tienen una variedad de feature maps que puede ser demasiada para el modelo (mas bien para mi ordenador).
+        - A mayor feature map, el nombre de elementos crece muy rapidamente.
+        - Hacer un entrenamiento efectivo sobre todas las posiciones del feature map puede no ser practicable.
+        - Empezaremos con una prueba de concepto sobre DocVQA.
+        - SImular que los documentos aparecen en diferentes posiciones puede ser los mas eficiente, ya que nos ahorramos, por ejemplo,
+        tener que entrenar con imagenes muy grandes donde la mayoria del espacio es padding menos donde se encuentre el documento.
 
 

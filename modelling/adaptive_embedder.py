@@ -16,57 +16,7 @@ from timm.models.layers import to_2tuple
 
 from torch.nn import CrossEntropyLoss
 
-class MultiplePatchEmbeddings(nn.Module):
-    """LayoutLMv3 image (patch) embeddings. This class also automatically interpolates the position embeddings for varying
-    image sizes."""
-
-    def __init__(self, config):
-        super().__init__()
-
-        image_size = (
-            config.input_size
-            if isinstance(config.input_size, collections.abc.Iterable)
-            else (config.input_size, config.input_size)
-        )
-        patch_size = (
-            config.patch_size
-            if isinstance(config.patch_size, collections.abc.Iterable)
-            else (config.patch_size, config.patch_size)
-        )
-        self.patch_shape = (image_size[0] // patch_size[0], image_size[1] // patch_size[1])
-        self.proj1 = nn.Conv2d(config.num_channels, config.hidden_size, kernel_size=patch_size, stride=patch_size)
-        self.proj2 = nn.Conv2d(config.num_channels, config.hidden_size, kernel_size=patch_size, stride=patch_size)
-        self.proj3 = nn.Conv2d(config.num_channels, config.hidden_size, kernel_size=patch_size, stride=patch_size)
-
-    def forward(self, pixel_values, aspect_ratio, position_embedding=None):
-        # v1
-        # thresholds = (0.4, 1.4)
-        # v2
-        thresholds = (0.3, 0.9)
-        
-        if aspect_ratio < thresholds[0]:
-            #print(aspect_ratio, 1)
-            embeddings = self.proj2(pixel_values)
-        if aspect_ratio > thresholds[1]:
-            #print(aspect_ratio, 2)
-            embeddings = self.proj3(pixel_values)
-        else:
-            #print(aspect_ratio, 3)
-            embeddings = self.proj1(pixel_values)
-
-        if position_embedding is not None:
-            # interpolate the position embedding to the corresponding size
-            position_embedding = position_embedding.view(1, self.patch_shape[0], self.patch_shape[1], -1)
-            position_embedding = position_embedding.permute(0, 3, 1, 2)
-            patch_height, patch_width = embeddings.shape[2], embeddings.shape[3]
-            position_embedding = F.interpolate(position_embedding, size=(patch_height, patch_width), mode="bicubic")
-            embeddings = embeddings + position_embedding
-
-        embeddings = embeddings.flatten(2).transpose(1, 2)
-        return embeddings
-
-
-class LayoutLMv3ModelMultipleEmbeddings(LayoutLMv3Model):
+class LayoutLMv3ModelNewEmbeddings(LayoutLMv3Model):
     """
     """
 
@@ -75,26 +25,111 @@ class LayoutLMv3ModelMultipleEmbeddings(LayoutLMv3Model):
     # Copied from transformers.models.bert.modeling_bert.BertModel.__init__ with Bert->Roberta
     def __init__(self, config):
         super().__init__(config)
-        self.patch_embed = MultiplePatchEmbeddings(config)
 
-        self.init_weights()
+        self.patch_size = config.patch_size
+        self.hidden_size = config.hidden_size
+        self.max_horizontal_patches = config.max_horizontal_patches 
+        self.max_vertical_patches = config.max_vertical_patches 
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, self.hidden_size))
+        self.pad_token = nn.Parameter(torch.zeros(1, 1, self.hidden_size))
+        
+        # Positional 2D embedding parameters
+        self.pos_embed_X = nn.Parameter(torch.zeros(1, 1, self.max_horizontal_patches, self.hidden_size))
+        self.pos_embed_Y = nn.Parameter(torch.zeros(1, self.max_vertical_patches, 1, self.hidden_size))
 
-    def forward_image(self, pixel_values, aspect_ratio):
-        embeddings = self.patch_embed(pixel_values, aspect_ratio)
 
-        # add [CLS] token
+    def forward_image(self, device, pixel_values, visual_attention_mask):
+        embeddings = self.patch_embed(pixel_values)
+        
+        patch_grid = (
+            int(pixel_values.size(dim=2) / self.patch_size), 
+            int(pixel_values.size(dim=3) / self.patch_size))
         batch_size, seq_len, _ = embeddings.size()
+
+        # Treat padding tokens as masked tokens
+        pad_tokens = self.pad_token.expand(batch_size, seq_len, -1)
+        mask = visual_attention_mask.unsqueeze(-1).type_as(pad_tokens)
+        embeddings = embeddings * mask + pad_tokens * (1.0 - mask)
+
+        # Apply the 2D positional embedding (only to the non-padded tokens)
+        # Loop over each document in the batch
+        for i in range(batch_size):
+            # Patches that are not padding
+            non_pad_grid = (
+                int(torch.sum(visual_attention_mask[i, ::patch_grid[1]])),
+                int(torch.sum(visual_attention_mask[i, :patch_grid[1]]))
+            )
+            # For training all the feature map more uniformly, we randomly apply a translation.
+            # First choose if they will be translated vertically or horizontally (the probability is given by the
+            # ratio between the vertical and horizontal maximums)
+            # Then, randomly choose how many patches they will be translated.
+            phase_v = phase_h = 0
+            if self.training:
+                if torch.bernoulli(torch.tensor([self.max_horizontal_patches/self.max_vertical_patches])) == 1:
+                    # Vertical translation
+                    diff = int(self.max_vertical_patches - non_pad_grid[0])
+                    phase_v =  0 if diff == 0 else int(torch.randint(0, diff, [1]))
+                else:
+                    # Horizontal translation
+                    diff = int(self.max_horizontal_patches - non_pad_grid[1])
+                    phase_h = 0 if diff == 0 else  int(torch.randint(0, diff, [1]))
+                
+            expand_shape = (*non_pad_grid, self.hidden_size)
+            reshape_shape = (patch_grid[0]*patch_grid[1], self.hidden_size)
+
+            pos_embed_X = self.pos_embed_X[0, :, phase_h:phase_h+non_pad_grid[1], :].expand(expand_shape)
+            pos_embed_Y = self.pos_embed_Y[0, phase_v:phase_v+non_pad_grid[0], :, :].expand(expand_shape)
+
+            pos_embed = torch.zeros((*patch_grid, self.hidden_size))
+            pos_embed[:non_pad_grid[0], :non_pad_grid[1], :] = pos_embed_X + pos_embed_Y
+            pos_embed = pos_embed.reshape(reshape_shape).to(device)
+            embeddings = embeddings + pos_embed
+
+        # Add [CLS] token
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
         embeddings = torch.cat((cls_tokens, embeddings), dim=1)
-
-        # add position embeddings
-        if self.pos_embed is not None:
-            embeddings = embeddings + self.pos_embed
 
         embeddings = self.pos_drop(embeddings)
         embeddings = self.norm(embeddings)
 
         return embeddings
+
+    def calculate_visual_bbox(self, device, dtype, batch_size, patch_grid, visual_attention_mask, max_len=1000):
+        for i in range(batch_size):
+            non_pad_grid = (
+                int(torch.sum(visual_attention_mask[i, ::patch_grid[1]])),
+                int(torch.sum(visual_attention_mask[i, :patch_grid[1]]))
+            )
+            # The bboxes for each token (not padding) go from 0 to max_len
+            visual_bbox_x = torch.div(
+                torch.arange(0, max_len * (patch_grid[1] + 1), max_len), non_pad_grid[1], rounding_mode="trunc"
+            )
+            visual_bbox_y = torch.div(
+                torch.arange(0, max_len * (patch_grid[0] + 1), max_len), non_pad_grid[0], rounding_mode="trunc"
+            )
+            visual_bbox_i = torch.stack(
+                [
+                    visual_bbox_x[:-1].repeat(patch_grid[0], 1),
+                    visual_bbox_y[:-1].repeat(patch_grid[1], 1).transpose(0, 1),
+                    visual_bbox_x[1:].repeat(patch_grid[0], 1),
+                    visual_bbox_y[1:].repeat(patch_grid[1], 1).transpose(0, 1),
+                ],
+                dim=-1,
+            ).view(-1, 4)
+
+            cls_token_box = torch.tensor([[0 + 1, 0 + 1, max_len - 1, max_len - 1]])
+            visual_bbox_i = torch.cat([cls_token_box, visual_bbox_i], dim=0).unsqueeze(0)
+            if i == 0:
+                visual_bbox = visual_bbox_i
+                
+            else:
+                visual_bbox = torch.cat((visual_bbox, visual_bbox_i))
+
+        # Use [0,0,0,0] as the bounding boxes for the padding tokens
+        visual_bbox[~visual_attention_mask.type(torch.bool)] = torch.tensor([0, 0, 0, 0])
+
+        visual_bbox = visual_bbox.to(device).type(dtype)
+        return visual_bbox
 
     # Copied from transformers.models.bert.modeling_bert.BertModel.forward
     def forward(
@@ -107,10 +142,10 @@ class LayoutLMv3ModelMultipleEmbeddings(LayoutLMv3Model):
         head_mask: Optional[torch.FloatTensor] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
         pixel_values: Optional[torch.FloatTensor] = None,
+        pixel_mask: Optional[torch.FloatTensor] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        aspect_ratio = None
+        return_dict: Optional[bool] = None
     ) -> Union[Tuple, BaseModelOutput]:
 
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
@@ -141,24 +176,30 @@ class LayoutLMv3ModelMultipleEmbeddings(LayoutLMv3Model):
             if bbox is None:
                 bbox = torch.zeros(tuple(list(input_shape) + [4]), dtype=torch.long, device=device)
 
-            embedding_output = self.embeddings(
+            text_embedding = self.embeddings(
                 input_ids=input_ids,
                 bbox=bbox,
                 position_ids=position_ids,
                 token_type_ids=token_type_ids,
                 inputs_embeds=inputs_embeds,
             )
-
         final_bbox = final_position_ids = None
-        patch_height = patch_width = None
+        patch_grid = (None, None)
         if pixel_values is not None:
-            patch_height, patch_width = int(pixel_values.shape[2] / self.config.patch_size), int(
-                pixel_values.shape[3] / self.config.patch_size
+            patch_size = self.config.patch_size
+            patch_grid = int(pixel_values.shape[2] / patch_size), int(
+                pixel_values.shape[3] / patch_size
             )
-            visual_embeddings = self.forward_image(pixel_values, aspect_ratio)
-            visual_attention_mask = torch.ones(
-                (batch_size, visual_embeddings.shape[1]), dtype=torch.long, device=device
-            )
+
+            # Padded patches from the pixel mask
+            visual_attention_mask = pixel_mask[:, ::patch_size, ::patch_size].flatten(1)
+            visual_embeddings = self.forward_image(device, pixel_values, visual_attention_mask)
+
+            # Increase attention mask to include the CLS token of the visual embedding
+            visual_attention_mask = torch.cat([
+                torch.ones((batch_size, 1), dtype=torch.long, device=device), 
+                visual_attention_mask
+                ], 1)
             if attention_mask is not None:
                 attention_mask = torch.cat([attention_mask, visual_attention_mask], dim=1)
             else:
@@ -166,7 +207,12 @@ class LayoutLMv3ModelMultipleEmbeddings(LayoutLMv3Model):
 
             if self.config.has_relative_attention_bias or self.config.has_spatial_attention_bias:
                 if self.config.has_spatial_attention_bias:
-                    visual_bbox = self.calculate_visual_bbox(device, dtype=torch.long, batch_size=batch_size)
+                    visual_bbox = self.calculate_visual_bbox(
+                        device, dtype=torch.long, 
+                        batch_size=batch_size, 
+                        patch_grid=patch_grid,
+                        visual_attention_mask=visual_attention_mask
+                        )
                     if bbox is not None:
                         final_bbox = torch.cat([bbox, visual_bbox], dim=1)
                     else:
@@ -183,12 +229,20 @@ class LayoutLMv3ModelMultipleEmbeddings(LayoutLMv3Model):
                     final_position_ids = visual_position_ids
 
             if input_ids is not None or inputs_embeds is not None:
-                embedding_output = torch.cat([embedding_output, visual_embeddings], dim=1)
+                embedding_output = torch.cat([text_embedding, visual_embeddings], dim=1)
             else:
                 embedding_output = visual_embeddings
 
             embedding_output = self.LayerNorm(embedding_output)
             embedding_output = self.dropout(embedding_output)
+
+            """print(visual_embeddings.size(), "visual embedding")
+            print(text_embedding.size(), "text embedding")
+            print(embedding_output.size(), "final embedding")
+            print(visual_bbox.size(), "visual bbox")
+            print(bbox.size(), "text bbox")
+            print(final_bbox.size(), "final bbox")"""
+
         elif self.config.has_relative_attention_bias or self.config.has_spatial_attention_bias:
             if self.config.has_spatial_attention_bias:
                 final_bbox = bbox
@@ -217,8 +271,8 @@ class LayoutLMv3ModelMultipleEmbeddings(LayoutLMv3Model):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
-            patch_height=patch_height,
-            patch_width=patch_width,
+            patch_height=patch_grid[0],
+            patch_width=patch_grid[1],
         )
 
         sequence_output = encoder_outputs[0]
@@ -232,14 +286,15 @@ class LayoutLMv3ModelMultipleEmbeddings(LayoutLMv3Model):
             attentions=encoder_outputs.attentions,
         )
 
-class LayoutLMv3ForQuestionAnsweringMultipleEmbeddings(LayoutLMv3ForQuestionAnswering):
+class LayoutLMv3ForQuestionAnsweringNewEmbeddings(LayoutLMv3ForQuestionAnswering):
     _keys_to_ignore_on_load_unexpected = [r"pooler"]
     _keys_to_ignore_on_load_missing = [r"position_ids"]
 
     def __init__(self, config):
         super().__init__(config)
-        self.layoutlmv3 = LayoutLMv3ModelMultipleEmbeddings(config)
+        self.layoutlmv3 = LayoutLMv3ModelNewEmbeddings(config)
 
+    # TODO: Quizas no haga falta tocar este forward
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
@@ -255,7 +310,7 @@ class LayoutLMv3ForQuestionAnsweringMultipleEmbeddings(LayoutLMv3ForQuestionAnsw
         return_dict: Optional[bool] = None,
         bbox: Optional[torch.LongTensor] = None,
         pixel_values: Optional[torch.LongTensor] = None,
-        aspect_ratio = None
+        pixel_mask: Optional[torch.FloatTensor] = None
     ) -> Union[Tuple, QuestionAnsweringModelOutput]:
 
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
@@ -272,7 +327,7 @@ class LayoutLMv3ForQuestionAnsweringMultipleEmbeddings(LayoutLMv3ForQuestionAnsw
             return_dict=return_dict,
             bbox=bbox,
             pixel_values=pixel_values,
-            aspect_ratio=aspect_ratio
+            pixel_mask=pixel_mask
         )
 
         sequence_output = outputs[0]
