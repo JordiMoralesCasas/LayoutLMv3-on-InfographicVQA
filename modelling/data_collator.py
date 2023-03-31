@@ -50,22 +50,37 @@ class DocVQACollator:
         # Get image pixel values
         for feature in batch:
             image = Image.open(feature["image"]).convert("RGB")
-            # Experiment: Increase the ammount of patches
+            # Experiment: Adaptive embedder, increase the ammount of patches
             if not self.resize:
                 standard_size = self.model.config.input_size # TODO: get from config or parameter for the class(?)
                 patch_size = self.model.config.patch_size
                 max_horizontal_patches = self.model.config.max_horizontal_patches
                 max_vertical_patches = self.model.config.max_vertical_patches
+                # Crop instead of resizing to max_vertical/horizontal_patches
+                crop = True
                 if image.width < image.height:
-                    large_size = int((image.height*(standard_size/image.width)) // patch_size)
-                    image = image.resize((
+                    vertical_patches = int((image.height*(standard_size/image.width)) // patch_size)
+                    vertical_size = vertical_patches*patch_size if vertical_patches < max_vertical_patches else max_vertical_patches*patch_size
+                    if crop:
+                        image = image.resize((
+                            standard_size, vertical_patches*patch_size))
+                        image = image.crop((
+                            0, 0, standard_size, vertical_size))
+                    else:
+                        image = image.resize((
                         standard_size, 
-                        large_size*patch_size if large_size < max_vertical_patches else max_vertical_patches*patch_size))
+                        vertical_size))
                 else:
-                    large_size = int((image.width*(standard_size/image.height)) // patch_size)
-                    image = image.resize((
-                        large_size*patch_size if large_size < max_horizontal_patches else max_horizontal_patches*patch_size, 
-                        standard_size))     
+                    horizontal_patches = int((image.width*(standard_size/image.height)) // patch_size)
+                    horizontal_size = horizontal_patches*patch_size if horizontal_patches < max_horizontal_patches else max_horizontal_patches*patch_size
+                    if crop:
+                        image = image.resize((
+                            horizontal_patches*patch_size, standard_size))
+                        image = image.crop((
+                            0, 0, horizontal_size, standard_size))
+                    else:
+                        image = image.resize((
+                            horizontal_size, standard_size))   
 
             vis_features = self.feature_extractor(images=image, return_tensors='np')["pixel_values"][0]
             feature['pixel_values'] = vis_features.tolist()

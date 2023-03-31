@@ -10,11 +10,11 @@ import numpy as np
 import argparse
 import logging
 from datasets import load_from_disk, DatasetDict, concatenate_datasets, Dataset
-from transformers import PreTrainedModel, AutoModelForQuestionAnswering, AutoTokenizer, AutoFeatureExtractor, LayoutLMv3Model, LayoutLMv3Config, BartModel
+from transformers import PreTrainedModel, AutoModelForQuestionAnswering, AutoTokenizer, AutoFeatureExtractor, LayoutLMv3Model, LayoutLMv3Config, BartModel, RobertaModel
 from modelling.utils import get_optimizers, create_and_fill_np_array, write_data, anls_metric_str, postprocess_qa_predictions, bbox_string
 from modelling.tokenization import tokenize_dataset
 from modelling.data_collator import DocVQACollator
-from modelling.layoutlmv3_gen import LayoutLMv3ForConditionalGeneration
+from modelling.generative_model import LayoutLMv3ForConditionalGeneration
 from modelling.adaptive_embedder import LayoutLMv3ModelNewEmbeddings, LayoutLMv3ForQuestionAnsweringNewEmbeddings
 
 accelerator = Accelerator(kwargs_handlers=[])
@@ -216,6 +216,7 @@ def main():
         model_config.max_vertical_patches = 90
 
         model = LayoutLMv3ForQuestionAnsweringNewEmbeddings(model_config)
+        """
         old = LayoutLMv3Model.from_pretrained(pretrained_model_name)
         model.layoutlmv3.embeddings.load_state_dict(old.embeddings.state_dict())
         model.layoutlmv3.pos_drop.load_state_dict(old.pos_drop.state_dict())
@@ -223,6 +224,25 @@ def main():
         model.layoutlmv3.dropout.load_state_dict(old.dropout.state_dict())
         model.layoutlmv3.norm.load_state_dict(old.norm.state_dict())
         model.layoutlmv3.encoder.load_state_dict(old.encoder.state_dict())
+        """
+        # TODO: Move to utils
+        def randomize_model(model):
+            # Use the kaiming uniform initialization
+            for module_ in model.named_modules(): 
+                if isinstance(module_[1],(torch.nn.Linear, torch.nn.Embedding)):
+                    #module_[1].weight.data.normal_(mean=0.0, std=model.config.initializer_range)
+                    torch.nn.init.xavier_uniform_(module_[1].weight)
+                elif isinstance(module_[1], torch.nn.LayerNorm):
+                    module_[1].bias.data.zero_()
+                    module_[1].weight.data.fill_(1.0)
+                if isinstance(module_[1], torch.nn.Linear) and module_[1].bias is not None:
+                    module_[1].bias.data.zero_()
+            return model
+        randomize_model(model)
+
+        model.layoutlmv3.embeddings.word_embeddings.load_state_dict(
+            RobertaModel.from_pretrained("roberta-base").embeddings.word_embeddings.state_dict())
+
     else:
         model = AutoModelForQuestionAnswering.from_pretrained(pretrained_model_name)
 

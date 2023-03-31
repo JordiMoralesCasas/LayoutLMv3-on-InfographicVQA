@@ -73,12 +73,12 @@ accelerate launch \
 accelerate launch \
     --config_file launch_config.yaml model_runner.py \
     --dataset_file cached_datasets/docvqa_cached_extractive_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
-    --model_folder docvqa_embeddings_from_base_20epoch_batchsize_4_lr_5eneg6 \
+    --model_folder docvqa_embeddings_90x30_from_zero_50epoch_batchsize_4_lr_1eneg7 \
     --save_mode \
-    --num_epochs 20 \
+    --num_epochs 50 \
     --ignore_unmatched_span 1 \
     --train_batch_size 4 \
-    --learning_rate 5e-6 \
+    --learning_rate 1e-7 \
     --mode train \
     --use_embeddings
 
@@ -100,21 +100,21 @@ accelerate launch \
 accelerate launch \
     --config_file launch_config.yaml model_runner.py \
     --dataset_file cached_datasets/docvqa_cached_extractive_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
-    --load_state docvqa_embeddings_90x30_finetune_baseline_50epoch_batchsize_4_lr_1eneg7 \
+    --load_state docvqa_embeddings_30x90_finetune_baseline_50epoch_batchsize_4_lr_1eneg7 \
     --mode val \
     --use_embeddings
 
 accelerate launch \
     --config_file launch_config.yaml model_runner.py \
     --dataset_file cached_datasets/infographicvqa_all_lowercase_True_msr_ocr_True_extraction_v1_enumeration \
-    --load_state docvqa_embeddings_90x30_finetune_baseline_50epoch_batchsize_4_lr_1eneg7 \
+    --load_state docvqa_embeddings_30x90_finetune_baseline_50epoch_batchsize_4_lr_1eneg7 \
     --mode val \
     --use_embeddings 
 
 accelerate launch \
     --config_file launch_config.yaml model_runner.py \
-    --dataset_file cached_datasets/infographicvqa_very_horizontal_msr_ocr_True_extraction_v1_enumeration \
-    --load_state docvqa_embeddings_90x30_finetune_baseline_50epoch_batchsize_4_lr_1eneg7 \
+    --dataset_file cached_datasets/infographicvqa_document_msr_ocr_True_extraction_v1_enumeration \
+    --load_state docvqa_embeddings_30x90_finetune_baseline_50epoch_batchsize_4_lr_1eneg7 \
     --mode val \
     --use_embeddings 
 

@@ -17,7 +17,7 @@ from torch.nn import CrossEntropyLoss
 logger = logging.get_logger(__name__)
 
 
-class LayoutLMv3TransformerModel(LayoutLMv3PreTrainedModel):
+class LayoutLMv3EncoderDecoder(LayoutLMv3PreTrainedModel):
     _keys_to_ignore_on_load_missing = [r"position_ids"]
 
     def __init__(self, config):
@@ -32,7 +32,7 @@ class LayoutLMv3TransformerModel(LayoutLMv3PreTrainedModel):
         bart_config = BartConfig.from_pretrained('facebook/bart-base')
         self.decoder = BartDecoder(bart_config, self.encoder.embeddings.word_embeddings)
         # self.init_weights()
-
+    """
     def get_input_embeddings(self):
         return self.encoder.embeddings.word_embeddings
 
@@ -41,7 +41,7 @@ class LayoutLMv3TransformerModel(LayoutLMv3PreTrainedModel):
 
     def get_decoder(self):
         return self.decoder
-
+    """
     def set_input_embeddings(self, value):
         self.encoder.embeddings.word_embeddings = value
 
@@ -132,19 +132,20 @@ class LayoutLMv3ForConditionalGeneration(LayoutLMv3PreTrainedModel):
 
     def __init__(self, config: LayoutLMv3Config):
         super().__init__(config)
-        self.layoutlmv3 = LayoutLMv3TransformerModel(config)
+        self.layoutlmv3 = LayoutLMv3EncoderDecoder(config)
         # Save the "final_logits_bias" buffer, not as parameters that the model has to update
         self.register_buffer("final_logits_bias", torch.zeros((1, self.layoutlmv3.embeddings.word_embeddings.num_embeddings)))
         self.lm_head = nn.Linear(config.hidden_size, self.layoutlmv3.embeddings.word_embeddings.num_embeddings, bias=False)
 
         # Initialize weights and apply final processing
         self.post_init()
-
+    """
     def get_encoder(self):
         return self.layoutlmv3.get_encoder()
 
     def get_decoder(self):
         return self.layoutlmv3.get_decoder()
+    """
 
     def resize_token_embeddings(self, new_num_tokens: int) -> nn.Embedding:
         new_embeddings = super().resize_token_embeddings(new_num_tokens)
@@ -159,12 +160,13 @@ class LayoutLMv3ForConditionalGeneration(LayoutLMv3PreTrainedModel):
             extra_bias = torch.zeros((1, new_num_tokens - old_num_tokens), device=self.final_logits_bias.device)
             new_bias = torch.cat([self.final_logits_bias, extra_bias], dim=1)
         self.register_buffer("final_logits_bias", new_bias)
-
+    """
     def get_input_embeddings(self):
         return self.layoutlmv3.get_input_embeddings()
 
     def get_output_embeddings(self):
         return self.lm_head
+    """
 
     def set_output_embeddings(self, new_embeddings):
         self.lm_head = new_embeddings
@@ -305,7 +307,7 @@ class LayoutLMv3ForConditionalGeneration(LayoutLMv3PreTrainedModel):
         return reordered_past
 
 
-
+'''
 from transformers import PreTrainedModel, PretrainedConfig
 from transformers import EncoderDecoderConfig, AutoConfig, AutoModel, AutoModelForCausalLM
 from transformers.modeling_outputs import BaseModelOutput
@@ -796,3 +798,4 @@ if __name__ == '__main__':
     # bar_tokenizer = BartTokenizerFast.from_pretrained('facebook/bart-base')
     # bart_res = bar_tokenizer.batch_encode_plus(["how are you doing"], return_tensors='pt')
     # bart_result = bart_model.generate(input_ids=bart_res['input_ids'], attention_mask=bart_res['attention_mask'], num_beams=1)
+    # '''

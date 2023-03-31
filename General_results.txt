@@ -1,9 +1,9 @@
     # Experiment 1: New adaptive embedder, resize infographics to fit in patch grid
     DocVQA:
-    1- baseline -> 0.715184467578495
-    2- 30x30 finetune baseline -> 0.7172241722096753
-    3- 30x30 from base -> 0.7069109222716483
-    4- 30x30 finetune baseline -> 0.716899711433164
+    1- baseline -> 0.715184467578495  - docvqa_msr_ocr_finetune_base_50epoch_smaller_lr
+    2- 30x30 finetune baseline -> 0.7172241722096753 - docvqa_embeddings_30x30_finetune_baseline_50epoch_batchsize_4_lr_1eneg7
+    3- 30x30 from base -> 0.7069109222716483  - docvqa_embeddings_30x30_from_base_50epoch_batchsize_4_lr_1eneg7
+    4- 30x30 finetune baseline -> 0.716899711433164  - docvqa_embeddings_30x90_finetune_baseline_50epoch_batchsize_4_lr_1eneg7
 
                                       Whole ds    V. vertical     vertical     Document      Horizontal    V. Horizontal
     1- Baseline                        0.23152       0.24926      0.21156       0.29148        0.18312       0.15487
@@ -11,23 +11,28 @@
     3- 5e-6, 4, 30x30, 50 ep, base     0.20836       0.23179      0.17881       0.24477        0.17232       0.13862
     4- 1e-7, 4, 30x90, 50 ep, ft       0.22595       0.23631      0.20227       0.29696        0.17461       0.16821
 
-    # Experiment 2: Same training as Adaptive embedder,  crop infographics to fit in
+    # Experiment 2: Same training as Adaptive embedder, crop infographics to fit in
                                       Whole ds    V. vertical     vertical     Document      Horizontal    V. Horizontal
     1- Baseline                        0.23152       0.24926      0.21156       0.29148        0.18312       0.15487
-    2- 1e-7, 4, 30x30, 50 ep, ft       0.22996       0.25015      0.20136       0.28852        0.16934       0.16807
-    4- 1e-7, 4, 30x90, 50 ep, ft       0.22595       0.23631      0.20227       0.29696        0.17461       0.16821
+    2- 1e-7, 4, 30x30, 50 ep, ft 1     0.23158       0.25202      0.20351       0.28852        0.16934       0.16807
+    4- 1e-7, 4, 30x90, 50 ep, ft 1     0.22535       0.23583      0.20227       0.29696        0.17461       0.16821
 
-    # Experiment 3: Train model from zero (use RoBERTa weights for text embeddings matrix)
+    # Experiment 3: Train model from zero (use RoBERTa weights for text embeddings matrix). If the results are not specially
+     different to the ones of the baseline, it would mean that the pretraining done to documents could not be adequate to infographics
 
-    # Experiment 4: Generative model (Try with RoBERTa and BART decoders)
+    # Experiment 4: Try to understand the gap between V.vertical and vertical infographics -> See what are the source
+    distribution of the answers, maybe v.vertical show better results because they are more extractive.
+    As a way of presenting this, sample 10 documents from both subdatasets and see how they differ
 
-    # Experiment 5: Try to understand the gapp between V.vertical and vertical infographics -> See what are the source
-    distribution of the answers, maybe v.vertical show better results because they are more extractive
-    
-    # Experiment 6: Pre train adaptive embedder with Visually29k
+    # Experiment 5: Generative model (Try with RoBERTa and BART decoders)
+        How does the decoder implement cross-attention (what information from the encoder uses?) ->  https://huggingface.co/transformers/v4.11.3/model_doc/encoderdecoder.html
+        RoBERTa is an encoder that can be used as decoder, do we want seq2seq?: 
+            https://github.com/huggingface/transformers/blob/v4.27.2/src/transformers/models/roberta/modeling_roberta.py#L698
 
-    # Experiment 7: With the baseline model, test infographics but do not resize, pass 14x14 patch regions and see how it affectes
+    # Experiment 6: With the baseline model, test infographics but do not resize, pass 14x14 patch regions and see how it affectes
     the results. Maybe it works best with the top part of the documents, which could mean that most questions are biased towards
     having their answers at the top.
 
-    # Experiment 8: Get some confidence interval when extracting with softmax, maybe something can be said
+    # Experiment 7: Get some confidence interval when extracting with softmax, maybe something can be said
+    
+    # Experiment 8: Pre train adaptive embedder with Visually29k

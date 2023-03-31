@@ -37,6 +37,8 @@ class LayoutLMv3ModelNewEmbeddings(LayoutLMv3Model):
         self.pos_embed_X = nn.Parameter(torch.zeros(1, 1, self.max_horizontal_patches, self.hidden_size))
         self.pos_embed_Y = nn.Parameter(torch.zeros(1, self.max_vertical_patches, 1, self.hidden_size))
 
+        self.init_weights()
+
 
     def forward_image(self, device, pixel_values, visual_attention_mask):
         embeddings = self.patch_embed(pixel_values)
